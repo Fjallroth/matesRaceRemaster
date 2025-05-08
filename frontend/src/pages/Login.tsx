@@ -9,9 +9,11 @@ import {
 } from "@/components/ui/card";
 
 const Login: React.FC = () => {
+  const backendUrl = import.meta.env.VITE_BACKEND_URL;
+  const stravaLoginUrl = `${backendUrl}/oauth2/authorization/strava`;
   const handleStravaLogin = () => {
     // Redirect to your backend's Strava OAuth endpoint
-    window.location.href = "https://your-backend-domain.com/oauth/strava";
+    window.location.href = `${stravaLoginUrl}`;
   };
 
   return (
