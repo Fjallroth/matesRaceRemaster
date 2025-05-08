@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
@@ -108,6 +108,7 @@ const RaceDetail: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [submitDialogOpen, setSubmitDialogOpen] = useState<boolean>(false);
+  const navigate = useNavigate();
   const [selectedAgeCategory, setSelectedAgeCategory] = useState<string | null>(
     null,
   );
@@ -351,6 +352,9 @@ const RaceDetail: React.FC = () => {
 
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-3 mb-6">
+        <Button variant="outline" onClick={() => navigate("/")}>
+          Back to Dashboard
+        </Button>
         {race.status === "ongoing" && !race.hasSubmitted && (
           <Button onClick={() => setSubmitDialogOpen(true)}>
             Submit Activity
@@ -538,9 +542,9 @@ const RaceDetail: React.FC = () => {
                     </div>
                   </div>
                 ) : (
-                  <div className="text-center py-6">
+                  <div className="text-center py-10">
                     <p className="text-muted-foreground mb-4">
-                      You haven't submitted an activity yet
+                      No activities submitted yet
                     </p>
                     <Button onClick={() => setSubmitDialogOpen(true)}>
                       Submit Activity
@@ -852,9 +856,12 @@ const RaceDetail: React.FC = () => {
                 </Table>
               ) : (
                 <div className="text-center py-10">
-                  <p className="text-muted-foreground">
+                  <p className="text-muted-foreground mb-4">
                     No activities submitted yet
                   </p>
+                  <Button onClick={() => setSubmitDialogOpen(true)}>
+                    Submit Activity
+                  </Button>
                 </div>
               )}
             </CardContent>

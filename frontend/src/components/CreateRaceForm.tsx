@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -40,6 +41,7 @@ const formSchema = z
     raceName: z.string().min(3, {
       message: "Race name must be at least 3 characters.",
     }),
+    description: z.string().optional(),
     startDate: z.date({
       required_error: "Start date is required.",
     }),
@@ -99,12 +101,14 @@ export default function CreateRaceForm({
   onSubmit = () => {},
   isLoading = false,
 }: CreateRaceFormProps) {
+  const navigate = useNavigate();
   const [segmentInput, setSegmentInput] = useState("");
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       raceName: "",
+      description: "",
       startDate: new Date(),
       endDate: new Date(new Date().setDate(new Date().getDate() + 7)),
       segments: [],
@@ -168,10 +172,20 @@ export default function CreateRaceForm({
 
   const handleSubmit = (values: FormValues) => {
     onSubmit(values);
+    // In a real app, we would submit to an API and then navigate
+    // For now, just navigate back to home after a short delay
+    setTimeout(() => {
+      navigate("/");
+    }, 500);
   };
 
   return (
     <div className="w-full max-w-2xl mx-auto bg-background p-6 rounded-xl shadow-sm">
+      <div className="mb-6">
+        <Button variant="outline" onClick={() => navigate("/")}>
+          Back to Dashboard
+        </Button>
+      </div>
       <h2 className="text-2xl font-bold mb-6 text-center">Create New Race</h2>
 
       <Form {...form}>
@@ -190,6 +204,28 @@ export default function CreateRaceForm({
                 </FormControl>
                 <FormDescription>
                   Give your race a catchy, descriptive name.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="description"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Race Description</FormLabel>
+                <FormControl>
+                  <textarea
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="Describe your race, rules, and any special instructions"
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  Optional details about your race to help participants
+                  understand what to expect.
                 </FormDescription>
                 <FormMessage />
               </FormItem>
