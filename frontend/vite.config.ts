@@ -1,26 +1,25 @@
 import path from "path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
-import { tempo } from "tempo-devtools/dist/vite";
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: process.env.NODE_ENV === "development" ? "/" : process.env.VITE_BASE_PATH || "/",
-  optimizeDeps: {
-    entries: ["src/main.tsx", "src/tempobook/**/*"],
-  },
-  plugins: [
-    react(),
-    tempo(),
-  ],
+  plugins: [react()],
   resolve: {
-    preserveSymlinks: true,
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  server: {
-    // @ts-ignore
-    allowedHosts: true,
+  server: { // Add this server configuration
+    proxy: {
+      // Proxy /api requests to your Spring Boot backend
+      '/api': {
+        target: 'http://localhost:8080', // Your backend URL
+        changeOrigin: true, // Recommended for virtual hosted sites
+        secure: false,      // Optional: if your backend is http
+        // You might not need to rewrite path if backend expects /api prefix
+        // rewrite: (path) => path.replace(/^\/api/, '') // Remove /api prefix if backend doesn't expect it
+      }
+    }
   }
-});
+})

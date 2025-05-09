@@ -1,9 +1,11 @@
 package com.matesRace.backend.config;
 
 import com.matesRace.backend.security.CustomOAuth2UserService;
-import com.matesRace.backend.security.CustomStravaOAuth2AuthorizationRequestResolver; // Your custom resolver
-import com.matesRace.backend.security.OAuth2LoginSuccessListener;
+import com.matesRace.backend.security.CustomStravaOAuth2AuthorizationRequestResolver;
+import com.matesRace.backend.security.OAuth2LoginSuccessListener; // Still needed for event listening
+
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value; // Import for Value
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -11,6 +13,8 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 
 @Configuration
 @EnableWebSecurity
@@ -19,6 +23,10 @@ public class SecurityConfig {
     private final ClientRegistrationRepository clientRegistrationRepository;
     private final CustomOAuth2UserService customOAuth2UserService;
     private final OAuth2LoginSuccessListener oauth2LoginSuccessListener; // Still needed for event listening
+
+    // Inject the frontend URL from application.properties
+    @Value("${frontend.url}")
+    private String frontendUrl;
 
     @Autowired
     public SecurityConfig(ClientRegistrationRepository clientRegistrationRepository,
@@ -33,26 +41,33 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/").permitAll()
+                        .requestMatchers("/", "/error", "/favicon.ico").permitAll() // Permit basic static resources and error pages
                         .anyRequest().authenticated()
                 )
                 .oauth2Login(oauth2 -> oauth2
-                                .authorizationEndpoint(authorizationEndpoint ->
-                                        authorizationEndpoint
-                                                .authorizationRequestResolver(authorizationRequestResolver()) // Ensure this is wired
-                                )
-                                .userInfoEndpoint(userInfo -> userInfo
-                                        .userService(this.customOAuth2UserService)
-                                )
-                        // Success handler removed as per previous discussion for event listening
+                        .authorizationEndpoint(authorizationEndpoint ->
+                                authorizationEndpoint
+                                        .authorizationRequestResolver(authorizationRequestResolver())
+                        )
+                        .userInfoEndpoint(userInfo -> userInfo
+                                .userService(this.customOAuth2UserService)
+                        )
+                        .successHandler(authenticationSuccessHandler()) // Add the success handler here
                 );
         return http.build();
     }
 
     @Bean
     public OAuth2AuthorizationRequestResolver authorizationRequestResolver() {
-        // The base URI for the authorization request. Typically "/oauth2/authorization"
-        // This is the part of the path Spring uses to trigger the OAuth2 flow.
         return new CustomStravaOAuth2AuthorizationRequestResolver(this.clientRegistrationRepository, "/oauth2/authorization");
+    }
+
+    @Bean
+    public AuthenticationSuccessHandler authenticationSuccessHandler() {
+        SimpleUrlAuthenticationSuccessHandler successHandler = new SimpleUrlAuthenticationSuccessHandler();
+
+        successHandler.setDefaultTargetUrl(frontendUrl + "/home");
+        successHandler.setAlwaysUseDefaultTargetUrl(true); // Force redirection to this URL
+        return successHandler;
     }
 }
