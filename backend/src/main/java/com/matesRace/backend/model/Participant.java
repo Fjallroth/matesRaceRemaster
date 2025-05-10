@@ -16,7 +16,7 @@ public class Participant {
     private Race race; // Link back to the Race
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_strava_id", referencedColumnName = "stravaId", nullable = false) // Link to the User
+    @JoinColumn(name = "user_strava_id", referencedColumnName = "strava_id") // Link to the User
     private User user;
 
     @Column(nullable = false)

@@ -43,7 +43,7 @@ public class Race {
     private List<SegmentIdentifier> segments = new ArrayList<>();
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "organiser_strava_id", referencedColumnName = "stravaId", nullable = false) // FK column in Race table, references PK ('stravaId') in User table
+    @JoinColumn(name = "organiser_strava_id", referencedColumnName = "strava_Id") // FK column in Race table, references PK ('stravaId') in User table
     private User organiser;
 
     @Column(name = "participation_password", nullable = false)
@@ -56,7 +56,7 @@ public class Race {
     @JoinTable(
             name = "race_join_requests", // Name of the intermediate join table
             joinColumns = @JoinColumn(name = "race_id"), // FK column in join table linking to Race
-            inverseJoinColumns = @JoinColumn(name = "user_strava_id", referencedColumnName = "stravaId") // FK column linking to User (using stravaId)
+            inverseJoinColumns = @JoinColumn(name = "user_strava_id", referencedColumnName = "strava_id") // FK column linking to User (using stravaId)
     )
     private Set<User> joinRequesters = new HashSet<>();
 
