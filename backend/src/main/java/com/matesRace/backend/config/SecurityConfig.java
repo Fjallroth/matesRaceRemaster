@@ -64,10 +64,6 @@ public class SecurityConfig {
 
     @Bean
     public AuthenticationSuccessHandler authenticationSuccessHandler() {
-        SimpleUrlAuthenticationSuccessHandler successHandler = new SimpleUrlAuthenticationSuccessHandler();
-
-        successHandler.setDefaultTargetUrl(frontendUrl + "/home");
-        successHandler.setAlwaysUseDefaultTargetUrl(true); // Force redirection to this URL
-        return successHandler;
+        return this.oauth2LoginSuccessListener;
     }
 }
