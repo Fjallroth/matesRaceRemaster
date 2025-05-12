@@ -1,52 +1,44 @@
 // src/types/raceTypes.ts
 
-// Interface for the User object that will be part of RaceParticipant
-export interface RaceUserForParticipant {
-    stravaId: number;
+export interface RaceUserForParticipant { // Corresponds to UserSummaryDTO
+    stravaId: number; // Use number to match backend Long
     displayName?: string;
     userStravaFirstName?: string;
     userStravaLastName?: string;
     userStravaPic?: string;
     userSex?: string;
-    // Add any other user fields you might need from the backend User model
   }
   
-  // Interface for a single Participant (as part of a Race)
-  export interface RaceParticipant {
-    id: number; // Participant record ID
-    user: RaceUserForParticipant; // Nested user details
+  export interface RaceParticipant { // Corresponds to ParticipantSummaryDTO
+    id: number; // Use number
+    user: RaceUserForParticipant;
     submittedRide: boolean;
-    submittedActivityId?: number;
-    // segmentResults: ParticipantSegmentResult[]; // You might want a type for this too if detailed results are included
-    // Add any other fields from your backend Participant model
+    submittedActivityId?: number; // Use number
   }
   
-  // Interface for the User object embedded in Race (specifically the organiser)
-  export interface RaceOrganiser {
-    stravaId: number;
+  export interface RaceOrganiser { // Corresponds to UserSummaryDTO
+    stravaId: number; // Use number
     displayName?: string;
     userStravaFirstName?: string;
     userStravaLastName?: string;
     userStravaPic?: string;
   }
   
-  // Interface for a single Race
-  export interface Race {
-    id: number;
+  export interface Race { // Corresponds to RaceResponseDTO
+    id: number; // Use number
     raceName: string;
     raceInfo?: string;
-    startDate: string; // ISO 8601 string
-    endDate: string;   // ISO 8601 string
-    segmentIds: number[];
+    startDate: string; 
+    endDate: string;   
+    segmentIds: number[]; // Use number[]
     organiser: RaceOrganiser;
     isPrivate: boolean;
-    password?: string;
-    participants?: RaceParticipant[]; // Optional: Add participants here
-    // joinRequesters: RaceOrganiser[]; // If you fetch this with the race
-    // Add any other fields you expect from the backend's Race entity
+    // password?: string; // Typically not sent from backend for GET requests
+    participants?: RaceParticipant[]; // For RaceDetail view, populated by backend
+    participantCount: number; // For MyRaces list view
   }
   
-  // Summary type (optional, if you have different list/detail views)
+  // This summary might not be strictly needed if Race type is flexible enough
   export interface RaceSummary {
     id: number;
     raceName: string;
@@ -54,6 +46,6 @@ export interface RaceUserForParticipant {
     endDate: string;
     organiser: RaceOrganiser;
     isPrivate: boolean;
-    participantCount?: number;
+    participantCount: number; // Ensure this is present
     status?: "upcoming" | "ongoing" | "finished";
   }

@@ -168,8 +168,30 @@ const RaceDetail: React.FC = () => {
   };
 
   const formatDate = (dateString?: string): string => {
-    if (!dateString) return "N/A";
-    return format(parseISO(dateString), "MMM d,colourCodeDict");
+    if (!dateString) {
+      console.warn("formatDate called with undefined or null dateString");
+      return "N/A";
+    }
+  
+    try {
+      const date = parseISO(dateString);
+  
+      if (!isValid(date)) {
+        console.error("formatDate: Invalid date produced by parseISO for input:", dateString);
+        return "Invalid Date";
+      }
+  
+      // Let's try a different, very common and simple format string for diagnostics
+      const formatPattern = "yyyy-MM-dd"; // Changed from "MMM d, yyyy"
+      // You can also try "PP" (e.g., 05/12/2025) or "MMM d, yy"
+  
+      console.log("Attempting to format date:", date, "with pattern:", formatPattern, "from input:", dateString);
+      return format(date, formatPattern);
+  
+    } catch (e) {
+      console.error("Error caught during date formatting for input:", dateString, e);
+      return "Date Error";
+    }
   };
 
   const getRaceStatus = (startDate?: string, endDate?: string): "not_started" | "ongoing" | "submissions_closed" | "finished" => {
