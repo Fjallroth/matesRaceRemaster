@@ -1,14 +1,14 @@
-//participants not stored here as they were previously an array of objects. This wont work in SQL
 package com.matesRace.backend.model;
+
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import com.matesRace.backend.model.SegmentIdentifier;
-import java.util.ArrayList;
-import java.util.List;
+
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 
@@ -16,8 +16,7 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table
-
+@Table(name = "races") // Keep this explicit name
 public class Race {
 
     @Id
@@ -26,6 +25,9 @@ public class Race {
 
     @Column(nullable = false)
     private String raceName;
+    
+    @Column(columnDefinition = "TEXT") // Explicitly map to TEXT type in PostgreSQL
+    private String raceInfo; // This field will store the description
 
     @Column(nullable = false)
     private Instant startDate;
@@ -33,30 +35,26 @@ public class Race {
     @Column(nullable = false)
     private Instant endDate;
 
-    @ElementCollection(fetch = FetchType.LAZY)
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "race_segment_ids", joinColumns = @JoinColumn(name = "race_id"))
     @Column(name = "segment_id", nullable = false)
     private List<Long> segmentIds = new ArrayList<>();
 
-    @ElementCollection(fetch = FetchType.LAZY)
-    @CollectionTable(name = "race_segments", joinColumns = @JoinColumn(name = "race_id"))
-    private List<SegmentIdentifier> segments = new ArrayList<>();
-
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "organiser_strava_id", referencedColumnName = "strava_Id") // FK column in Race table, references PK ('stravaId') in User table
+    @JoinColumn(name = "organiser_strava_id", referencedColumnName = "strava_Id", nullable = false)
     private User organiser;
 
-    @Column(name = "participation_password", nullable = false)
-    private String participationPassword;
+    @Column(name = "password", nullable = true)
+    private String password;
 
-    @Lob
-    private String raceInfo;
+    @Column(nullable = false)
+    private boolean isPrivate = false;
 
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
-            name = "race_join_requests", // Name of the intermediate join table
-            joinColumns = @JoinColumn(name = "race_id"), // FK column in join table linking to Race
-            inverseJoinColumns = @JoinColumn(name = "user_strava_id", referencedColumnName = "strava_id") // FK column linking to User (using stravaId)
+            name = "race_join_requests",
+            joinColumns = @JoinColumn(name = "race_id"),
+            inverseJoinColumns = @JoinColumn(name = "user_strava_id", referencedColumnName = "strava_id")
     )
     private Set<User> joinRequesters = new HashSet<>();
 

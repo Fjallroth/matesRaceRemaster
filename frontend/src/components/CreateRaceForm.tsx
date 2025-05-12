@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+// No need to import RefinementCtx if using .superRefine or if refine infers it correctly at the object level
 import { z } from "zod";
 import { format } from "date-fns";
 import {
@@ -10,7 +11,8 @@ import {
   X,
   Lock,
   Globe,
-  Users,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -35,9 +37,11 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/use-toast";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-const formSchema = z
-  .object({
+// Define the base object schema first
+const formObjectSchema = z.object({
     raceName: z.string().min(3, {
       message: "Race name must be at least 3 characters.",
     }),
@@ -56,21 +60,8 @@ const formSchema = z
       message: "At least one segment is required.",
     }),
     privacy: z.enum(["public", "private"]),
-    password: z
-      .string()
-      .optional()
-      .refine(
-        (val, ctx) => {
-          if (ctx.parent.privacy === "private" && (!val || val.length < 4)) {
-            return false;
-          }
-          return true;
-        },
-        {
-          message:
-            "Password is required for private races and must be at least 4 characters.",
-        },
-      ),
+    // Password field doesn't need the complex refine here anymore
+    password: z.string().optional(),
     categories: z.object({
       useAgeCategories: z.boolean().default(false),
       useSexCategories: z.boolean().default(false),
@@ -84,28 +75,41 @@ const formSchema = z
         )
         .optional(),
     }),
-  })
-  .refine((data) => data.endDate > data.startDate, {
-    message: "End date must be after start date.",
-    path: ["endDate"],
   });
+
+// Apply schema-level refinements using .superRefine or .refine on the object
+const formSchema = formObjectSchema.superRefine((data, ctx) => {
+    // 1. End date must be after start date
+    if (data.endDate <= data.startDate) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.invalid_date,
+            message: "End date must be after start date.",
+            path: ["endDate"], // Attach error to endDate field
+        });
+    }
+
+    // 2. Password required for private races
+    if (data.privacy === "private" && (!data.password || data.password.length < 4)) {
+         ctx.addIssue({
+            code: z.ZodIssueCode.custom, // Use custom for non-standard checks
+            message: "Password is required for private races and must be at least 4 characters.",
+            path: ["password"], // Attach error to password field
+        });
+    }
+});
+
 
 type FormValues = z.infer<typeof formSchema>;
 
-interface CreateRaceFormProps {
-  onSubmit?: (data: FormValues) => void;
-  isLoading?: boolean;
-}
-
-export default function CreateRaceForm({
-  onSubmit = () => {},
-  isLoading = false,
-}: CreateRaceFormProps) {
+export default function CreateRaceForm() {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [segmentInput, setSegmentInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema), // Use the refined schema
     defaultValues: {
       raceName: "",
       description: "",
@@ -133,8 +137,6 @@ export default function CreateRaceForm({
 
   const handleAddSegment = () => {
     if (!segmentInput.trim()) return;
-
-    // Basic validation for Strava segment URL or ID
     const segmentPattern = /^(https:\/\/www\.strava\.com\/segments\/\d+|\d+)$/;
     if (!segmentPattern.test(segmentInput)) {
       form.setError("segments", {
@@ -143,14 +145,10 @@ export default function CreateRaceForm({
       });
       return;
     }
-
-    // Extract ID if URL was provided
     let segmentId = segmentInput;
     if (segmentInput.includes("strava.com/segments/")) {
       segmentId = segmentInput.split("/").pop() || "";
     }
-
-    // Check if segment already exists
     if (segments.includes(segmentId)) {
       form.setError("segments", {
         type: "manual",
@@ -158,7 +156,6 @@ export default function CreateRaceForm({
       });
       return;
     }
-
     form.setValue("segments", [...segments, segmentId]);
     form.clearErrors("segments");
     setSegmentInput("");
@@ -170,13 +167,75 @@ export default function CreateRaceForm({
     form.setValue("segments", updatedSegments);
   };
 
-  const handleSubmit = (values: FormValues) => {
-    onSubmit(values);
-    // In a real app, we would submit to an API and then navigate
-    // For now, just navigate back to home after a short delay
-    setTimeout(() => {
+  const handleSubmit = async (values: FormValues) => {
+    setIsLoading(true);
+    setApiError(null);
+
+    const segmentIdsAsNumbers = values.segments
+        .map(Number)
+        .filter(id => !isNaN(id) && id > 0);
+
+    if (segmentIdsAsNumbers.length !== values.segments.length) {
+         toast({
+            variant: "destructive",
+            title: "Invalid Segment ID",
+            description: "One or more segment IDs are not valid numbers.",
+        });
+        setIsLoading(false);
+        return;
+    }
+
+    const payload = {
+      raceName: values.raceName,
+      description: values.description,
+      startDate: values.startDate.toISOString(),
+      endDate: values.endDate.toISOString(),
+      segmentIds: segmentIdsAsNumbers,
+      privacy: values.privacy,
+      password: values.privacy === "private" ? values.password : undefined,
+    };
+
+    console.log("Submitting payload:", payload);
+
+    try {
+      const response = await fetch("/api/races", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+         credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        let errorMsg = `HTTP error! status: ${response.status}`;
+        try {
+            const errorData = await response.json();
+            errorMsg = errorData.message || errorMsg;
+        } catch (e) {
+            // If response is not JSON, use the status text
+            errorMsg = response.statusText || errorMsg;
+        }
+        throw new Error(errorMsg);
+      }
+
+      toast({
+        title: "Race Created!",
+        description: `"${values.raceName}" has been successfully created.`,
+      });
       navigate("/");
-    }, 500);
+
+    } catch (error: any) {
+      console.error("Failed to create race:", error);
+      setApiError(error.message || "An unexpected error occurred. Please try again.");
+      toast({
+        variant: "destructive",
+        title: "Uh oh! Something went wrong.",
+        description: error.message || "There was a problem creating the race.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -188,8 +247,17 @@ export default function CreateRaceForm({
       </div>
       <h2 className="text-2xl font-bold mb-6 text-center">Create New Race</h2>
 
+      {apiError && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{apiError}</AlertDescription>
+        </Alert>
+      )}
+
       <Form {...form}>
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+          {/* Race Name */}
           <FormField
             control={form.control}
             name="raceName"
@@ -210,6 +278,7 @@ export default function CreateRaceForm({
             )}
           />
 
+          {/* Race Description */}
           <FormField
             control={form.control}
             name="description"
@@ -232,7 +301,8 @@ export default function CreateRaceForm({
             )}
           />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Start & End Dates */}
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <FormField
               control={form.control}
               name="startDate"
@@ -263,7 +333,7 @@ export default function CreateRaceForm({
                         mode="single"
                         selected={field.value}
                         onSelect={field.onChange}
-                        disabled={(date) => date < new Date()}
+                        disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                         initialFocus
                       />
                     </PopoverContent>
@@ -304,18 +374,21 @@ export default function CreateRaceForm({
                         mode="single"
                         selected={field.value}
                         onSelect={field.onChange}
+                        // This is now handled by the schema-level refine, but disabling dates here provides better UX
                         disabled={(date) => date <= form.getValues("startDate")}
                         initialFocus
                       />
                     </PopoverContent>
                   </Popover>
                   <FormDescription>When submissions close.</FormDescription>
+                  {/* FormMessage will show error from schema-level refine */}
                   <FormMessage />
                 </FormItem>
               )}
             />
           </div>
 
+          {/* Segments */}
           <FormField
             control={form.control}
             name="segments"
@@ -334,7 +407,7 @@ export default function CreateRaceForm({
                   </Button>
                 </div>
                 <FormDescription>
-                  Add one or more Strava segments for this race.
+                  Add one or more Strava segments for this race (enter numeric ID or full URL).
                 </FormDescription>
                 <FormMessage />
 
@@ -351,17 +424,18 @@ export default function CreateRaceForm({
                               key={index}
                               className="flex items-center justify-between bg-muted p-2 rounded-md"
                             >
-                              <div className="flex items-center">
-                                <Badge variant="outline" className="mr-2">
+                              <div className="flex items-center overflow-hidden">
+                                <Badge variant="secondary" className="mr-2 flex-shrink-0">
                                   {index + 1}
                                 </Badge>
-                                <span className="text-sm">{segment}</span>
+                                <span className="text-sm truncate">{segment}</span>
                               </div>
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleRemoveSegment(index)}
+                                className="flex-shrink-0"
                               >
                                 <X className="h-4 w-4" />
                               </Button>
@@ -376,6 +450,7 @@ export default function CreateRaceForm({
             )}
           />
 
+          {/* Privacy */}
           <FormField
             control={form.control}
             name="privacy"
@@ -415,6 +490,7 @@ export default function CreateRaceForm({
             )}
           />
 
+          {/* Password (Conditional) */}
           {privacy === "private" && (
             <FormField
               control={form.control}
@@ -425,19 +501,23 @@ export default function CreateRaceForm({
                   <FormControl>
                     <Input
                       type="password"
-                      placeholder="Set a password"
+                      placeholder="Set a password (min 4 characters)"
+                       // Use field value directly; refinement happens at schema level
                       {...field}
+                      value={field.value ?? ""} // Ensure value is not null/undefined for Input
                     />
                   </FormControl>
                   <FormDescription>
                     Participants will need this password to join your race.
                   </FormDescription>
+                   {/* FormMessage will show error from schema-level refine */}
                   <FormMessage />
                 </FormItem>
               )}
             />
           )}
 
+          {/* Category Toggles */}
           <FormField
             control={form.control}
             name="categories.useAgeCategories"
@@ -452,13 +532,12 @@ export default function CreateRaceForm({
                 <div className="space-y-1 leading-none">
                   <FormLabel>Enable Age Categories</FormLabel>
                   <FormDescription>
-                    Allow filtering leaderboard by age groups
+                    Allow filtering leaderboard by age groups (feature coming soon)
                   </FormDescription>
                 </div>
               </FormItem>
             )}
           />
-
           <FormField
             control={form.control}
             name="categories.useSexCategories"
@@ -473,16 +552,24 @@ export default function CreateRaceForm({
                 <div className="space-y-1 leading-none">
                   <FormLabel>Enable Sex Categories</FormLabel>
                   <FormDescription>
-                    Allow filtering leaderboard by sex (male/female)
+                     Allow filtering leaderboard by sex (male/female) (feature coming soon)
                   </FormDescription>
                 </div>
               </FormItem>
             )}
           />
 
+          {/* Submit Button */}
           <div className="flex justify-end pt-4">
             <Button type="submit" disabled={isLoading}>
-              {isLoading ? "Creating..." : "Create Race"}
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Create Race"
+              )}
             </Button>
           </div>
         </form>

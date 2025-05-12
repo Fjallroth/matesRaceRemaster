@@ -8,13 +8,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value; // Import for Value
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod; // Import HttpMethod
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer; // Import AbstractHttpConfigurer for CSRF disabling
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
-import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
+
 
 @Configuration
 @EnableWebSecurity
@@ -40,9 +42,15 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
+                // Disable CSRF for simplicity with SPA. If using session cookies and not tokens,
+                // ensure proper CSRF token handling is implemented on the frontend.
+                .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/", "/error", "/favicon.ico").permitAll() // Permit basic static resources and error pages
-                        .anyRequest().authenticated()
+                        .requestMatchers("/", "/error", "/favicon.ico", "/index.html", "/assets/**", "/vite.svg").permitAll() // Permit basic static resources and error pages
+                        .requestMatchers(HttpMethod.GET, "/api/user/me").authenticated() // Existing user endpoint
+                        .requestMatchers(HttpMethod.POST, "/api/races").authenticated() // Allow authenticated users to create races
+                        .requestMatchers(HttpMethod.GET, "/api/races/**").authenticated() // Allow authenticated users to view races (adjust if public view needed)
+                        .anyRequest().authenticated() // All other requests need authentication
                 )
                 .oauth2Login(oauth2 -> oauth2
                         .authorizationEndpoint(authorizationEndpoint ->
