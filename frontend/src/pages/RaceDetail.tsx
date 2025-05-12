@@ -52,7 +52,7 @@ import {
   Info,
   ListChecks,
 } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, isValid } from "date-fns";
 import { Race, RaceOrganiser, RaceParticipant } from "@/types/raceTypes"; // Correctly import RaceParticipant
 import { useAuth } from "@/AuthContext";
 
