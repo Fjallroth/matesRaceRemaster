@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+// src/components/home.tsx
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Card,
@@ -9,139 +10,151 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Users, Trophy, Calendar, Settings } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { PlusCircle, Users, Trophy, Settings, Loader2, AlertTriangle, Search } from "lucide-react";
 import RaceCard from "./RaceCard";
-
-interface Race {
-  id: string;
-  name: string;
-  status: "upcoming" | "ongoing" | "finished";
-  startDate: Date;
-  endDate: Date;
-  participantCount: number;
-  organizer: {
-    id: string;
-    name: string;
-    avatarUrl?: string;
-  };
-  isPrivate?: boolean;
-}
+import { Race, RaceOrganiser } from "@/types/raceTypes";
+import { parseISO } from 'date-fns'; // <--- IMPORT ADDED HERE
 
 const Home = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState("all");
+  const [activeTab, setActiveTab] = useState<"all" | "ongoing" | "upcoming">("all");
   const [showFinishedOnly, setShowFinishedOnly] = useState(false);
+  const [races, setRaces] = useState<Race[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
-  const mockRaces: Race[] = [
-    {
-      id: "1",
-      name: "Weekend Hill Challenge",
-      status: "upcoming",
-      startDate: new Date("2023-07-15"),
-      endDate: new Date("2023-07-17"),
-      participantCount: 8,
-      organizer: { id: "1", name: "John Doe" },
-      isPrivate: false,
-    },
-    {
-      id: "2",
-      name: "City Loop Sprint",
-      status: "ongoing",
-      startDate: new Date("2023-07-01"),
-      endDate: new Date("2023-07-10"),
-      participantCount: 12,
-      organizer: {
-        id: "2",
-        name: "Jane Smith",
-        avatarUrl: "https://api.dicebear.com/7.x/avataaars/svg?seed=jane",
-      },
-      isPrivate: true,
-    },
-    {
-      id: "3",
-      name: "Mountain Goat Challenge",
-      status: "finished",
-      startDate: new Date("2023-06-15"),
-      endDate: new Date("2023-06-30"),
-      participantCount: 15,
-      organizer: { id: "3", name: "Mike Johnson" },
-      isPrivate: false,
-    },
-    {
-      id: "4",
-      name: "Summer Solstice Ride",
-      status: "upcoming",
-      startDate: new Date("2023-07-20"),
-      endDate: new Date("2023-07-22"),
-      participantCount: 6,
-      organizer: { id: "4", name: "Sarah Williams" },
-      isPrivate: true,
-    },
-  ];
 
-  const filteredRaces = mockRaces.filter((race) => {
-    if (showFinishedOnly && race.status !== "finished") return false;
-    if (activeTab !== "all" && race.status !== activeTab) return false;
-    return true;
+  useEffect(() => {
+    const fetchRaces = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await fetch("/api/races", {
+            headers: { 'Accept': 'application/json' },
+            credentials: 'include',
+        });
+        if (!response.ok) {
+          if (response.status === 401) {
+            console.warn("Not authenticated to fetch all races for home dashboard.");
+            setRaces([]);
+            setIsLoading(false);
+            return;
+          }
+          throw new Error(`Failed to fetch races: ${response.statusText}`);
+        }
+        const data: Race[] = await response.json();
+        setRaces(data);
+      } catch (err: any) {
+        setError(err.message);
+        console.error("Error fetching races:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRaces();
+  }, []);
+
+  const getRaceStatus = (startDate: string, endDate: string): "upcoming" | "ongoing" | "finished" => {
+    const now = new Date();
+    const start = parseISO(startDate);
+    const end = parseISO(endDate);
+    if (now < start) return "upcoming";
+    if (now >= start && now <= end) return "ongoing";
+    return "finished";
+  };
+
+
+  const filteredRaces = races
+    .map(race => ({
+        ...race,
+        status: getRaceStatus(race.startDate, race.endDate),
+    }))
+    .filter((race) => {
+        const raceNameLower = race.raceName.toLowerCase();
+        const organiserNameLower = `${race.organiser.userStravaFirstName || ''} ${race.organiser.userStravaLastName || ''} ${race.organiser.displayName || ''}`.toLowerCase();
+        const searchLower = searchTerm.toLowerCase();
+
+        if (searchTerm && !raceNameLower.includes(searchLower) && !organiserNameLower.includes(searchLower)) {
+            return false;
+        }
+        if (showFinishedOnly && race.status !== "finished") return false;
+        if (activeTab !== "all" && race.status !== activeTab) return false;
+        return true;
   });
 
   const handleCreateRace = () => {
     navigate("/create-race");
   };
 
-  const [joinDialogOpen, setJoinDialogOpen] = useState(false);
-  const [joinRaceData, setJoinRaceData] = useState({ raceName: "", password: "" });
-
-  const handleJoinRace = () => {
-    setJoinDialogOpen(true);
+  const handleJoinRaceOpenDialog = () => {
+    alert("Placeholder: Open dialog to join a private race.");
   };
 
-  const handleJoinRaceSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setJoinDialogOpen(false);
-    navigate(`/race/1`);
-  };
-
-  const handleRaceClick = (id: string) => {
+  const handleRaceClick = (id: number) => {
     navigate(`/race/${id}`);
   };
 
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="ml-4 text-lg">Loading races...</p>
+      </div>
+    );
+  }
+
+  if (error && races.length === 0) {
+    return (
+      <div className="container mx-auto px-4 py-8 text-center">
+        <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+        <h2 className="text-xl font-semibold text-destructive mb-2">Could Not Load Races</h2>
+        <p className="text-muted-foreground mb-4">{error}</p>
+        <p className="text-sm text-muted-foreground mb-4">This might be because you are not logged in, or there was a network issue.</p>
+        <Button onClick={() => window.location.reload()} className="mr-2">Try Again</Button>
+        <Button variant="outline" onClick={() => navigate("/login")}>Login</Button>
+      </div>
+    );
+  }
+
   return (
-    <div className="container mx-auto px-4 py-8 bg-white min-h-screen">
+    <div className="container mx-auto px-4 py-8 bg-background min-h-screen">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">MatesRace</h1>
-          <p className="text-gray-600 mt-1">Race your mates, conquer the segments!</p>
+          <h1 className="text-3xl font-bold text-foreground">MatesRace</h1>
+          <p className="text-muted-foreground mt-1">Race your mates, conquer the segments!</p>
         </div>
         <div className="flex gap-3">
-          <Button className="bg-green-600 hover:bg-green-700" onClick={handleCreateRace}>
+          <Button className="bg-primary hover:bg-primary/90" onClick={handleCreateRace}>
             <PlusCircle className="mr-2 h-4 w-4" /> Create Race
           </Button>
-          <Button variant="outline" onClick={handleJoinRace}>
+          <Button variant="outline" onClick={handleJoinRaceOpenDialog}>
             <Users className="mr-2 h-4 w-4" /> Join Race
           </Button>
-          <Button variant="outline" onClick={() => navigate('/my-races')}>
+          <Button variant="outline" onClick={() => navigate("/my-races")}>
             <Settings className="mr-2 h-4 w-4" /> My Races
           </Button>
         </div>
       </div>
 
+       <div className="mb-6 relative">
+            <Input
+                type="text"
+                placeholder="Search races by name or organizer..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 w-full"
+            />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+        </div>
+
       <div className="flex flex-col md:flex-row justify-between items-center mb-6">
         <Tabs
-          defaultValue="all"
           value={activeTab}
-          onValueChange={setActiveTab}
+          onValueChange={(value) => setActiveTab(value as "all" | "ongoing" | "upcoming")}
           className="w-full md:w-auto"
         >
           <TabsList className="grid grid-cols-3 md:w-[400px]">
@@ -150,7 +163,6 @@ const Home = () => {
             <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
           </TabsList>
         </Tabs>
-
         <div className="flex items-center mt-4 md:mt-0">
           <div className="flex items-center space-x-2">
             <input
@@ -158,52 +170,69 @@ const Home = () => {
               id="showFinished"
               checked={showFinishedOnly}
               onChange={(e) => setShowFinishedOnly(e.target.checked)}
-              className="rounded border-gray-300 text-primary focus:ring-primary"
+              className="rounded border-input text-primary focus:ring-primary"
             />
-            <label htmlFor="showFinished" className="text-sm font-medium">Show finished races only</label>
+            <label htmlFor="showFinished" className="text-sm font-medium text-foreground">
+              Show finished races only
+            </label>
           </div>
         </div>
       </div>
 
-      <div className="space-y-4">
+      {filteredRaces.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredRaces.map((race) => (
             <RaceCard
               key={race.id}
-              id={race.id}
-              name={race.name}
-              status={race.status}
-              startDate={race.startDate}
-              endDate={race.endDate}
-              participantCount={race.participantCount}
-              organizer={race.organizer}
+              id={race.id.toString()}
+              name={race.raceName}
+              status={race.status as "upcoming" | "ongoing" | "finished"}
+              startDate={parseISO(race.startDate)}
+              endDate={parseISO(race.endDate)}
+              participantCount={race.participants?.length || 0}
+              organizer={{
+                  stravaId: race.organiser.stravaId,
+                  displayName: race.organiser.displayName,
+                  userStravaFirstName: race.organiser.userStravaFirstName,
+                  userStravaLastName: race.organiser.userStravaLastName,
+                  userStravaPic: race.organiser.userStravaPic,
+              }}
               isPrivate={race.isPrivate}
-              onClick={handleRaceClick}
+              onClick={() => handleRaceClick(race.id)}
             />
           ))}
         </div>
-      </div>
+      ) : (
+        <div className="text-center py-12">
+            <p className="text-xl text-muted-foreground">
+                {searchTerm ? "No races match your search." : "No races available for the selected filters."}
+            </p>
+            {searchTerm && (
+                <Button variant="link" onClick={() => setSearchTerm("")}>Clear search</Button>
+            )}
+        </div>
+      )}
 
       <div className="mt-12">
         <Card>
           <CardHeader>
             <CardTitle>Quick Stats</CardTitle>
-            <CardDescription>Your cycling competition overview</CardDescription>
+            <CardDescription>Your cycling competition overview (dummy data)</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="flex items-center p-4 bg-gray-50 rounded-lg">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex items-center p-4 bg-muted/50 rounded-lg">
                 <Trophy className="h-8 w-8 text-amber-500 mr-4" />
                 <div>
-                  <p className="text-sm text-gray-500">Races Won</p>
-                  <p className="text-2xl font-bold">3</p>
+                  <p className="text-sm text-muted-foreground">Races Won</p>
+                  <p className="text-2xl font-bold">0</p>
                 </div>
               </div>
-              <div className="flex items-center p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center p-4 bg-muted/50 rounded-lg">
                 <Users className="h-8 w-8 text-blue-500 mr-4" />
                 <div>
-                  <p className="text-sm text-gray-500">Active Races</p>
-                  <p className="text-2xl font-bold">2</p>
+                  <p className="text-sm text-muted-foreground">Active Races Joined</p>
+                  <p className="text-2xl font-bold">0</p>
                 </div>
               </div>
             </div>
