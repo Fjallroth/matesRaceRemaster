@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-// No need to import RefinementCtx if using .superRefine or if refine infers it correctly at the object level
 import { z } from "zod";
 import { format } from "date-fns";
 import {
@@ -52,15 +51,14 @@ const formObjectSchema = z.object({
     endDate: z
       .date({
         required_error: "End date is required.",
-      })
-      .refine((date) => date > new Date(), {
-        message: "End date must be in the future.",
       }),
+      // REMOVED: .refine((date) => date > new Date(), {
+      //   message: "End date must be in the future.",
+      // }),
     segments: z.array(z.string()).min(1, {
       message: "At least one segment is required.",
     }),
     privacy: z.enum(["public", "private"]),
-    // Password field doesn't need the complex refine here anymore
     password: z.string().optional(),
     categories: z.object({
       useAgeCategories: z.boolean().default(false),
@@ -91,9 +89,9 @@ const formSchema = formObjectSchema.superRefine((data, ctx) => {
     // 2. Password required for private races
     if (data.privacy === "private" && (!data.password || data.password.length < 4)) {
          ctx.addIssue({
-            code: z.ZodIssueCode.custom, // Use custom for non-standard checks
+            code: z.ZodIssueCode.custom, 
             message: "Password is required for private races and must be at least 4 characters.",
-            path: ["password"], // Attach error to password field
+            path: ["password"], 
         });
     }
 });
@@ -109,11 +107,12 @@ export default function CreateRaceForm() {
   const [apiError, setApiError] = useState<string | null>(null);
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema), // Use the refined schema
+    resolver: zodResolver(formSchema),
     defaultValues: {
       raceName: "",
       description: "",
-      startDate: new Date(),
+      // Default start date can remain today, user can change it to past.
+      startDate: new Date(), 
       endDate: new Date(new Date().setDate(new Date().getDate() + 7)),
       segments: [],
       privacy: "public",
@@ -213,7 +212,6 @@ export default function CreateRaceForm() {
             const errorData = await response.json();
             errorMsg = errorData.message || errorMsg;
         } catch (e) {
-            // If response is not JSON, use the status text
             errorMsg = response.statusText || errorMsg;
         }
         throw new Error(errorMsg);
@@ -333,7 +331,7 @@ export default function CreateRaceForm() {
                         mode="single"
                         selected={field.value}
                         onSelect={field.onChange}
-                        disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                        // REMOVED: disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                         initialFocus
                       />
                     </PopoverContent>
@@ -374,14 +372,16 @@ export default function CreateRaceForm() {
                         mode="single"
                         selected={field.value}
                         onSelect={field.onChange}
-                        // This is now handled by the schema-level refine, but disabling dates here provides better UX
-                        disabled={(date) => date <= form.getValues("startDate")}
+                        disabled={(date) => {
+                            const startDate = form.getValues("startDate");
+                            // Disable dates that are on or before the selected start date
+                            return startDate ? date <= startDate : false;
+                        }}
                         initialFocus
                       />
                     </PopoverContent>
                   </Popover>
                   <FormDescription>When submissions close.</FormDescription>
-                  {/* FormMessage will show error from schema-level refine */}
                   <FormMessage />
                 </FormItem>
               )}
@@ -502,15 +502,13 @@ export default function CreateRaceForm() {
                     <Input
                       type="password"
                       placeholder="Set a password (min 4 characters)"
-                       // Use field value directly; refinement happens at schema level
                       {...field}
-                      value={field.value ?? ""} // Ensure value is not null/undefined for Input
+                      value={field.value ?? ""} 
                     />
                   </FormControl>
                   <FormDescription>
                     Participants will need this password to join your race.
                   </FormDescription>
-                   {/* FormMessage will show error from schema-level refine */}
                   <FormMessage />
                 </FormItem>
               )}

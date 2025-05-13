@@ -10,10 +10,12 @@ export interface RaceUserForParticipant { // Corresponds to UserSummaryDTO
   }
   
   export interface RaceParticipant { // Corresponds to ParticipantSummaryDTO
-    id: number; // Use number
+    id: number;
     user: RaceUserForParticipant;
     submittedRide: boolean;
-    submittedActivityId?: number; // Use number
+    submittedActivityId?: number;
+    segmentResults?: ParticipantSegmentResult[]; // <-- ADDED
+    // totalTime and segmentTimes for display can be derived in frontend RaceDetail component
   }
   
   export interface RaceOrganiser { // Corresponds to UserSummaryDTO
@@ -22,6 +24,21 @@ export interface RaceUserForParticipant { // Corresponds to UserSummaryDTO
     userStravaFirstName?: string;
     userStravaLastName?: string;
     userStravaPic?: string;
+  }
+  
+  export interface StravaActivity {
+    id: number;
+    name: string;
+    startDateLocal: string; // ISO string "2024-07-29T18:30:00Z"
+    distance: number; // in meters
+    elapsedTime: number; // in seconds
+    type: string; // "Ride", "Run" etc.
+  }
+
+  export interface ParticipantSegmentResult {
+    segmentId: number;
+    segmentName?: string; // Optional, depends on backend sending it
+    elapsedTimeSeconds?: number;
   }
   
   export interface Race { // Corresponds to RaceResponseDTO

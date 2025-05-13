@@ -1,5 +1,5 @@
 // src/pages/RaceDetail.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -53,14 +53,17 @@ import {
   ListChecks,
 } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
-import { Race, RaceOrganiser, RaceParticipant } from "@/types/raceTypes"; // Correctly import RaceParticipant
+import { Race, RaceOrganiser, RaceParticipant, StravaActivity, ParticipantSegmentResult } from "@/types/raceTypes"; // Updated imports
 import { useAuth } from "@/AuthContext";
+import { useToast } from "@/components/ui/use-toast"; // For showing messages
 
-// Simplified DisplayParticipant for the leaderboard, using RaceParticipant as base
+
+// Updated DisplayParticipantFromRace to use new types and improve derivation
 interface DisplayParticipantFromRace extends RaceParticipant {
-  name: string; // Derived name for display
-  totalTime?: number; // in seconds, calculated
-  segmentTimes?: Record<string, number>; // segmentId: timeInSeconds, calculated
+  name: string;
+  totalTime?: number;
+  segmentTimes?: Record<string, number>;
+  profileImage?: string; // From user.userStravaPic
 }
 
 interface DisplaySegment {
@@ -76,92 +79,199 @@ const RaceDetail: React.FC = () => {
   const { raceId } = useParams<{ raceId: string }>();
   const navigate = useNavigate();
   const { user: currentUser, isAuthenticated } = useAuth();
+  const { toast } = useToast(); // For displaying notifications
 
   const [race, setRace] = useState<Race | null>(null);
   const [displaySegments, setDisplaySegments] = useState<DisplaySegment[]>([]);
   const [leaderboardParticipants, setLeaderboardParticipants] = useState<DisplayParticipantFromRace[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  // State for Submit Activity Dialog
   const [submitDialogOpen, setSubmitDialogOpen] = useState<boolean>(false);
+  const [stravaActivities, setStravaActivities] = useState<StravaActivity[]>([]);
+  const [isFetchingActivities, setIsFetchingActivities] = useState<boolean>(false);
+  const [activityFetchError, setActivityFetchError] = useState<string | null>(null);
+  const [isSubmittingActivity, setIsSubmittingActivity] = useState<boolean>(false);
+  const [activitySubmissionError, setActivitySubmissionError] = useState<string | null>(null);
+
+
+  const mapParticipantsForDisplay = useCallback((participants?: RaceParticipant[]): DisplayParticipantFromRace[] => {
+    if (!participants) return [];
+    return participants.map((p) => {
+      const user = p.user;
+      let totalTimeSecs: number | undefined = undefined;
+      const segTimes: Record<string, number> = {};
+
+      if (p.segmentResults && p.segmentResults.length > 0) {
+        totalTimeSecs = 0;
+        p.segmentResults.forEach(sr => {
+          if (sr.segmentId && sr.elapsedTimeSeconds !== undefined && sr.elapsedTimeSeconds !== null) {
+            segTimes[sr.segmentId.toString()] = sr.elapsedTimeSeconds;
+            totalTimeSecs += sr.elapsedTimeSeconds;
+          }
+        });
+        // If all segments have null/undefined time, totalTime remains undefined
+        if (totalTimeSecs !== undefined && Object.keys(segTimes).length === 0 && (race?.segmentIds?.length || 0) > 0) {
+            totalTimeSecs = undefined; // No valid segment efforts found
+        } else if (totalTimeSecs === 0 && (race?.segmentIds?.length || 0) > 0 && Object.keys(segTimes).length === 0) {
+            // Case where total is 0 because no segmentResults had time, but there are race segments.
+            totalTimeSecs = undefined;
+        }
+      }
+
+      return {
+        ...p,
+        name: `${user.userStravaFirstName || ''} ${user.userStravaLastName || ''}`.trim() || user.displayName || `User ${user.stravaId}`,
+        profileImage: user.userStravaPic,
+        totalTime: totalTimeSecs,
+        segmentTimes: segTimes,
+      };
+    });
+  }, [race?.segmentIds]); // Add race.segmentIds as dependency
+
+  const fetchRaceDetails = useCallback(async () => { // Wrapped in useCallback
+    if (!raceId) {
+      setError("Race ID is missing.");
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/races/${raceId}`, {
+          headers: { 'Accept': 'application/json' },
+          credentials: 'include',
+      });
+      if (!response.ok) {
+        if (response.status === 401) navigate('/login');
+        if (response.status === 404) throw new Error("Race not found.");
+        throw new Error(`Failed to fetch race details: ${response.statusText}`);
+      }
+      const data: Race = await response.json();
+      setRace(data);
+
+      const segmentDetailsPromises = data.segmentIds.map(async (id) => {
+          // In a real app, you might fetch segment names from Strava via your backend here
+          // For now, use placeholder name.
+          // The segment names should ideally come from the backend if they are pre-fetched
+          // or use segment name from p.segmentResults when available for the leaderboard.
+          let segmentName = `Segment ${id}`;
+          // Attempt to find the segment name from the first participant who has this segment
+          const participantWithSegment = data.participants?.find(par => par.segmentResults?.find(sr => sr.segmentId === id && sr.segmentName));
+          if (participantWithSegment) {
+              const foundSegmentResult = participantWithSegment.segmentResults?.find(sr => sr.segmentId === id && sr.segmentName);
+              if (foundSegmentResult && foundSegmentResult.segmentName) {
+                segmentName = foundSegmentResult.segmentName;
+              }
+          }
+
+          return {
+              id: id,
+              name: segmentName,
+              url: `https://www.strava.com/segments/${id}`,
+          };
+      });
+      const detailedSegments = await Promise.all(segmentDetailsPromises);
+      setDisplaySegments(detailedSegments);
+
+      setLeaderboardParticipants(mapParticipantsForDisplay(data.participants));
+
+    } catch (err: any) {
+      setError(err.message);
+      console.error("Error fetching race details:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [raceId, navigate, mapParticipantsForDisplay]); // Added mapParticipantsForDisplay
 
   useEffect(() => {
-    const fetchRaceDetails = async () => {
-      if (!raceId) {
-        setError("Race ID is missing.");
-        setIsLoading(false);
-        return;
-      }
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await fetch(`/api/races/${raceId}`, {
-            headers: { 'Accept': 'application/json' },
-            credentials: 'include',
-        });
-        if (!response.ok) {
-          if (response.status === 401) navigate('/login');
-          if (response.status === 404) throw new Error("Race not found.");
-          throw new Error(`Failed to fetch race details: ${response.statusText}`);
-        }
-        const data: Race = await response.json();
-        setRace(data);
-
-        // Process segments (assuming segment details might need separate fetching or come enriched)
-        const segmentDetailsPromises = data.segmentIds.map(async (id) => {
-            // Placeholder: fetch segment name, distance, elevation from Strava API via your backend
-            return {
-                id: id,
-                name: `Segment ${id}`, // Replace with actual fetched name
-                url: `https://www.strava.com/segments/${id}`,
-                // distance: fetchedDistance,
-                // elevation: fetchedElevation,
-            };
-        });
-        const detailedSegments = await Promise.all(segmentDetailsPromises);
-        setDisplaySegments(detailedSegments);
-
-        // Process participants if they are included in the Race response
-        if (data.participants) {
-            const mappedParticipants = data.participants.map((p: RaceParticipant) => {
-                const user = p.user;
-                // Dummy calculation for totalTime and segmentTimes
-                // In a real scenario, this data would come from p.segmentResults or be calculated
-                // based on actual submitted activity processing.
-                // const totalTime = p.segmentResults?.reduce((sum, sr) => sum + (sr.elapsedTimeSeconds || 0), 0) || undefined;
-                // const segmentTimes = p.segmentResults?.reduce((acc, sr) => {
-                //     if (sr.segmentId && sr.elapsedTimeSeconds) acc[sr.segmentId.toString()] = sr.elapsedTimeSeconds;
-                //     return acc;
-                // }, {});
-
-                return {
-                    ...p, // Spread the original participant data
-                    name: `${user.userStravaFirstName || ''} ${user.userStravaLastName || ''}`.trim() || user.displayName || `User ${user.stravaId}`,
-                    profileImage: user.userStravaPic,
-                    // totalTime: totalTime, // Replace with actual data
-                    // segmentTimes: segmentTimes, // Replace with actual data
-                };
-            });
-            setLeaderboardParticipants(mappedParticipants);
-        }
-
-
-      } catch (err: any) {
-        setError(err.message);
-        console.error("Error fetching race details:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     if (isAuthenticated) {
         fetchRaceDetails();
     } else if (isAuthenticated === false && !isLoading) { // Avoid redirect during initial auth load
         navigate('/login');
     }
-  }, [raceId, navigate, isAuthenticated, isLoading]); // Added isLoading to dependencies
+  }, [isAuthenticated, isLoading, fetchRaceDetails, navigate]); // Added fetchRaceDetails
 
+  // Function to fetch Strava activities for the dialog
+  const fetchUserStravaActivities = async () => {
+    if (!raceId || !race) { // Check if race object is loaded
+        setActivityFetchError("Race details not available to fetch activities.");
+        return;
+    }
+    setIsFetchingActivities(true);
+    setActivityFetchError(null);
+    setStravaActivities([]);
+    try {
+        const response = await fetch(`/api/races/${raceId}/strava-activities`, {
+            credentials: 'include',
+        });
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: `HTTP error ${response.status}`}));
+            throw new Error(errorData.message || `Failed to fetch Strava activities: ${response.statusText}`);
+        }
+        const activities: StravaActivity[] = await response.json();
+        setStravaActivities(activities);
+        if (activities.length === 0) {
+            setActivityFetchError("No recent Strava 'Ride' activities found within the race period.");
+        }
+    } catch (err: any) {
+        console.error("Error fetching Strava activities:", err);
+        setActivityFetchError(err.message || "Could not fetch activities.");
+    } finally {
+        setIsFetchingActivities(false);
+    }
+  };
+
+  // Function to submit the selected activity
+  const handleActivitySubmit = async (activityId: number) => {
+    if (!raceId) return;
+    setIsSubmittingActivity(true);
+    setActivitySubmissionError(null);
+    try {
+        const response = await fetch(`/api/races/${raceId}/submit-activity`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ activityId }),
+        });
+
+        if (!response.ok) {
+             const errorData = await response.json().catch(() => ({ message: `HTTP error ${response.status}`}));
+            throw new Error(errorData.message || `Failed to submit activity: ${response.statusText}`);
+        }
+        toast({ title: "Success!", description: "Your activity has been submitted." });
+        setSubmitDialogOpen(false);
+        fetchRaceDetails(); // Refresh race details to update leaderboard and submission status
+    } catch (err: any) {
+        console.error("Error submitting activity:", err);
+        setActivitySubmissionError(err.message || "Could not submit activity.");
+        toast({ variant: "destructive", title: "Submission Error", description: err.message || "Could not submit activity." });
+    } finally {
+        setIsSubmittingActivity(false);
+    }
+  };
+
+  // Open dialog and fetch activities
+  useEffect(() => {
+    if (submitDialogOpen && raceId && race?.startDate && race?.endDate) {
+      
+      if (!isFetchingActivities && stravaActivities.length === 0) {
+        fetchUserStravaActivities();
+      }
+    } else if (!submitDialogOpen) {
+
+      setStravaActivities([]);
+      setActivityFetchError(null);
+    }
+
+  }, [submitDialogOpen, raceId, race?.startDate, race?.endDate, isFetchingActivities]); 
+ 
   const formatTime = (seconds?: number): string => {
-    if (seconds === undefined || seconds === null) return "-";
+    if (seconds === undefined || seconds === null || isNaN(seconds)) return "-";
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
@@ -169,36 +279,26 @@ const RaceDetail: React.FC = () => {
 
   const formatDate = (dateString?: string): string => {
     if (!dateString) {
-      console.warn("formatDate called with undefined or null dateString");
       return "N/A";
     }
-  
     try {
       const date = parseISO(dateString);
-  
       if (!isValid(date)) {
-        console.error("formatDate: Invalid date produced by parseISO for input:", dateString);
         return "Invalid Date";
       }
-  
-      // Let's try a different, very common and simple format string for diagnostics
-      const formatPattern = "yyyy-MM-dd"; // Changed from "MMM d, yyyy"
-      // You can also try "PP" (e.g., 05/12/2025) or "MMM d, yy"
-  
-      console.log("Attempting to format date:", date, "with pattern:", formatPattern, "from input:", dateString);
-      return format(date, formatPattern);
-  
+      return format(date, "MMM d, yyyy");
     } catch (e) {
-      console.error("Error caught during date formatting for input:", dateString, e);
       return "Date Error";
     }
   };
 
-  const getRaceStatus = (startDate?: string, endDate?: string): "not_started" | "ongoing" | "submissions_closed" | "finished" => {
-    if (!startDate || !endDate) return "not_started";
+  const getRaceStatus = (startDate?: string, endDate?: string): "not_started" | "ongoing" | "finished" => {
+    if (!startDate || !endDate) return "not_started"; // Default if dates are missing
     const now = new Date();
     const start = parseISO(startDate);
     const end = parseISO(endDate);
+
+    if (!isValid(start) || !isValid(end)) return "not_started"; // Invalid dates
 
     if (now < start) return "not_started";
     if (now >= start && now <= end) return "ongoing";
@@ -207,18 +307,17 @@ const RaceDetail: React.FC = () => {
 
   const getStatusBadge = (status: string) => {
     if (status === "not_started") return <Badge variant="secondary">Not Started</Badge>;
-    if (status === "ongoing") return <Badge className="bg-green-500 text-white">Submissions Open</Badge>;
+    if (status === "ongoing") return <Badge className="bg-green-500 text-white hover:bg-green-600">Submissions Open</Badge>;
     if (status === "finished") return <Badge variant="outline" className="bg-gray-500 text-white">Finished</Badge>;
     return <Badge variant="secondary">{status}</Badge>;
   };
 
   const isOrganizer = race?.organiser?.stravaId?.toString() === currentUser?.stravaId;
-  // Determine if current user has submitted based on fetched participant data
-  const currentUserParticipant = race?.participants?.find(p => p.user.stravaId.toString() === currentUser?.stravaId);
+  const currentUserParticipant = leaderboardParticipants.find(p => p.user.stravaId.toString() === currentUser?.stravaId);
   const hasSubmitted = currentUserParticipant?.submittedRide || false;
 
 
-  if (isLoading && !race) { // Show loading only if race data isn't available yet
+  if (isLoading && !race) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <div className="text-center">
@@ -241,7 +340,7 @@ const RaceDetail: React.FC = () => {
           </CardHeader>
           <CardContent><p>{error}</p></CardContent>
           <CardFooter>
-            <Button onClick={() => window.location.reload()} className="mr-2">Try Again</Button>
+            <Button onClick={() => fetchRaceDetails()} className="mr-2">Try Again</Button>
             <Button variant="outline" onClick={() => navigate('/')}>Go Home</Button>
           </CardFooter>
         </Card>
@@ -300,7 +399,7 @@ const RaceDetail: React.FC = () => {
             <div className="flex items-center mt-1">
               <Users size={14} className="mr-1 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">
-                {race.participants?.length || 0} participant(s)
+                {race.participantCount || 0} participant(s)
               </span>
             </div>
           </div>
@@ -354,7 +453,6 @@ const RaceDetail: React.FC = () => {
                 </div>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                {/* ... other items ... */}
                 <div className="flex items-center">
                   <Calendar className="mr-2 text-muted-foreground" size={18} />
                   <div>
@@ -385,7 +483,7 @@ const RaceDetail: React.FC = () => {
                   <div>
                     <p className="text-sm font-medium">Participants</p>
                     <p className="text-muted-foreground">
-                      {race.participants?.length || 0} cyclist(s)
+                      {race.participantCount || 0} cyclist(s)
                     </p>
                   </div>
                 </div>
@@ -413,8 +511,8 @@ const RaceDetail: React.FC = () => {
               <CardContent>
                 {hasSubmitted ? (
                   <div>
-                    <p>You've submitted your activity.</p>
-                    {/* TODO: Display submitted activity details if available from backend */}
+                    <p>You've submitted your activity (ID: {currentUserParticipant?.submittedActivityId || "N/A"}).</p>
+                    <p>You can update it by clicking the "Update Submission" button.</p>
                   </div>
                 ) : (
                   <div className="text-center py-6">
@@ -439,8 +537,6 @@ const RaceDetail: React.FC = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Segment Name</TableHead>
-                      {/* <TableHead>Distance</TableHead> */}
-                      {/* <TableHead>Elevation</TableHead> */}
                       <TableHead className="text-right">View on Strava</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -448,8 +544,6 @@ const RaceDetail: React.FC = () => {
                     {displaySegments.map((segment) => (
                       <TableRow key={segment.id}>
                         <TableCell className="font-medium">{segment.name}</TableCell>
-                        {/* <TableCell>{segment.distance?.toFixed(1) || '-'} km</TableCell> */}
-                        {/* <TableCell>{segment.elevation ? `${segment.elevation > 0 ? '+' : ''}${segment.elevation}` : '-'} m</TableCell> */}
                         <TableCell className="text-right">
                           <a href={segment.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center justify-end">
                             <span className="mr-1 text-sm">View Segment</span>
@@ -480,13 +574,13 @@ const RaceDetail: React.FC = () => {
                     <div key={participant.id} className="flex items-center justify-between p-3 border rounded-md">
                       <div className="flex items-center">
                         <Avatar className="h-10 w-10 mr-3">
-                          <AvatarImage src={participant.user.userStravaPic} alt={participant.name} />
+                          <AvatarImage src={participant.profileImage} alt={participant.name} />
                           <AvatarFallback>{participant.name?.charAt(0)?.toUpperCase() || 'P'}</AvatarFallback>
                         </Avatar>
                         <div>
                           <p className="font-medium">{participant.name}</p>
                           <p className="text-sm text-muted-foreground">
-                            {participant.submittedRide ? "Submitted activity" : "No submission yet"}
+                            {participant.submittedRide ? `Submitted (Activity ID: ${participant.submittedActivityId || 'N/A'})` : "No submission yet"}
                           </p>
                         </div>
                       </div>
@@ -515,15 +609,15 @@ const RaceDetail: React.FC = () => {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {leaderboardParticipants.filter((p) => p.submittedRide).length > 0 ? (
+              {leaderboardParticipants.filter((p) => p.submittedRide && p.totalTime !== undefined).length > 0 ? (
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Rank</TableHead>
                       <TableHead>Rider</TableHead>
                       {displaySegments.map(segment => (
-                          <TableHead key={segment.id} className="text-xs">
-                            {segment.name.length > 20 ? segment.name.substring(0,17) + "..." : segment.name}
+                          <TableHead key={segment.id} className="text-xs whitespace-nowrap">
+                            {segment.name.length > 25 ? segment.name.substring(0,22) + "..." : segment.name}
                           </TableHead>
                       ))}
                       <TableHead>Total Time</TableHead>
@@ -539,10 +633,10 @@ const RaceDetail: React.FC = () => {
                           <TableCell>
                             <div className="flex items-center">
                               <Avatar className="h-6 w-6 mr-2">
-                                <AvatarImage src={participant.user.userStravaPic} alt={participant.name} />
+                                <AvatarImage src={participant.profileImage} alt={participant.name} />
                                 <AvatarFallback>{participant.name?.charAt(0)?.toUpperCase() || 'P'}</AvatarFallback>
                               </Avatar>
-                              <span>{participant.name}</span>
+                              <span className="whitespace-nowrap">{participant.name}</span>
                             </div>
                           </TableCell>
                            {displaySegments.map(segment => (
@@ -574,28 +668,60 @@ const RaceDetail: React.FC = () => {
 
       {/* Submit Activity Dialog */}
       <Dialog open={submitDialogOpen} onOpenChange={setSubmitDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg"> {/* Increased width slightly */}
           <DialogHeader>
             <DialogTitle>Submit Strava Activity</DialogTitle>
-            <DialogDescription>Select a Strava activity that includes the race segments completed during the race period.</DialogDescription>
+            <DialogDescription>
+              Select a Strava 'Ride' activity completed between {race?.startDate ? formatDate(race.startDate) : 'N/A'} and {race?.endDate ? formatDate(race.endDate) : 'N/A'}.
+              <br/> Segment times will be automatically extracted.
+            </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <p className="text-center text-muted-foreground mb-4">Activity selection interface placeholder.</p>
-            <div className="space-y-3 max-h-60 overflow-y-auto">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="flex items-center justify-between p-3 border rounded-md cursor-pointer hover:bg-accent"
-                  onClick={() => { alert(`Activity "Recent Ride ${i}" selected. Implement submission logic.`); setSubmitDialogOpen(false); }}>
-                  <div>
-                    <p className="font-medium">Recent Ride {i}</p>
-                    <p className="text-sm text-muted-foreground">{format(new Date(Date.now() - i * 24 * 3600 * 1000), "MMM d, yy")} • {(20 + i * 5).toFixed(1)} km</p>
+          <div className="py-4 space-y-4">
+            {isFetchingActivities && (
+              <div className="flex items-center justify-center p-6">
+                <Loader2 className="animate-spin h-8 w-8 text-primary" />
+                <p className="ml-2">Fetching your recent Strava activities...</p>
+              </div>
+            )}
+            {!isFetchingActivities && activityFetchError && (
+              <p className="text-center text-destructive px-2 py-4 border border-destructive/50 rounded-md bg-destructive/10">{activityFetchError}</p>
+            )}
+            {!isFetchingActivities && !activityFetchError && stravaActivities.length === 0 && (
+              <p className="text-center text-muted-foreground p-6">
+                No recent Strava 'Ride' activities found within the race period. Ensure your activity is set to 'Ride' type on Strava.
+              </p>
+            )}
+            {!isFetchingActivities && stravaActivities.length > 0 && (
+              <div className="space-y-3 max-h-80 overflow-y-auto border rounded-md p-1"> {/* Increased max-h and added padding */}
+                {stravaActivities.map((activity) => (
+                  <div
+                    key={activity.id}
+                    className={`flex items-center justify-between p-3 border rounded-md cursor-pointer hover:bg-accent ${isSubmittingActivity ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    onClick={() => !isSubmittingActivity && handleActivitySubmit(activity.id)}
+                    role="button"
+                    tabIndex={isSubmittingActivity ? -1 : 0}
+                    onKeyDown={(e) => e.key === 'Enter' && !isSubmittingActivity && handleActivitySubmit(activity.id)}
+                  >
+                    <div>
+                      <p className="font-medium">{activity.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {format(parseISO(activity.startDateLocal), "MMM d, yyyy h:mm a")} • {(activity.distance / 1000).toFixed(1)} km • {formatTime(activity.elapsedTime)}
+                      </p>
+                    </div>
+                    {!isSubmittingActivity && <ChevronRight size={18} className="text-muted-foreground" />}
+                    {isSubmittingActivity && <Loader2 size={18} className="text-muted-foreground animate-spin" />}
                   </div>
-                  <ChevronRight size={18} className="text-muted-foreground" />
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
+            {activitySubmissionError && (
+                <p className="text-sm text-destructive pt-2 text-center">{activitySubmissionError}</p>
+            )}
           </div>
           <DialogFooter className="sm:justify-start">
-            <Button type="button" variant="outline" onClick={() => setSubmitDialogOpen(false)}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => setSubmitDialogOpen(false)} disabled={isSubmittingActivity}>
+              Cancel
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

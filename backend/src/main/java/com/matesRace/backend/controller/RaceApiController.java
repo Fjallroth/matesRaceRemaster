@@ -1,6 +1,9 @@
 // backend/src/main/java/com/matesRace/backend/controller/RaceApiController.java
 package com.matesRace.backend.controller;
-
+import com.matesRace.backend.dto.ParticipantSegmentResultDTO;
+import com.matesRace.backend.dto.StravaActivityDTO;
+import com.matesRace.backend.dto.SubmitActivityRequestDTO;
+import com.matesRace.backend.model.ParticipantSegmentResult;
 import com.matesRace.backend.dto.RaceCreateDTO;
 import com.matesRace.backend.dto.RaceResponseDTO;
 import com.matesRace.backend.dto.ParticipantSummaryDTO;
@@ -9,6 +12,7 @@ import com.matesRace.backend.dto.JoinRaceRequestDto;
 import com.matesRace.backend.model.Participant;
 import com.matesRace.backend.model.Race;
 import com.matesRace.backend.model.User;
+import com.matesRace.backend.service.StravaService;
 import com.matesRace.backend.repository.RaceRepository;
 import com.matesRace.backend.repository.UserRepository;
 import com.matesRace.backend.repository.ParticipantRepository;
@@ -22,10 +26,10 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
-
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -37,6 +41,9 @@ public class RaceApiController {
 
     @Autowired
     private RaceRepository raceRepository;
+
+    @Autowired
+    private StravaService stravaService;
 
     @Autowired
     private UserRepository userRepository;
@@ -231,8 +238,40 @@ public class RaceApiController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Could not join race due to a server error.");
         }
     }
+    @GetMapping("/{raceId}/strava-activities")
+    @Transactional(readOnly = true)
+    public ResponseEntity<List<StravaActivityDTO>> getStravaActivitiesForRace(
+            @PathVariable Long raceId,
+            @AuthenticationPrincipal OAuth2User principal) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        Race race = raceRepository.findById(raceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Race not found"));
 
+        if (race.getStartDate() == null || race.getEndDate() == null) {
+            logger.warn("Race {} is missing start or end date.", raceId);
+            return ResponseEntity.badRequest().body(Collections.emptyList()); // Or throw error
+        }
 
+        List<StravaActivityDTO> activities = stravaService.getUserActivities(principal, race.getStartDate(), race.getEndDate());
+        return ResponseEntity.ok(activities);
+    }
+    @PostMapping("/{raceId}/submit-activity")
+    @Transactional
+    public ResponseEntity<Void> submitStravaActivity(
+            @PathVariable Long raceId,
+            @RequestBody SubmitActivityRequestDTO request,
+            @AuthenticationPrincipal OAuth2User principal) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (request.getActivityId() == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        stravaService.processAndSaveActivityResults(principal, raceId, request.getActivityId());
+        return ResponseEntity.ok().build();
+    }
     private UserSummaryDTO convertToUserSummaryDTO(User user) {
         if (user == null) {
             return null;
@@ -250,11 +289,22 @@ public class RaceApiController {
         if (participant == null) {
             return null;
         }
+        List<ParticipantSegmentResultDTO> segmentResultDTOs = new ArrayList<>();
+        if (participant.getSegmentResults() != null) {
+            segmentResultDTOs = participant.getSegmentResults().stream()
+                    .map(psr -> new ParticipantSegmentResultDTO(
+                            psr.getSegmentId(),
+                            psr.getSegmentName(),
+                            psr.getElapsedTimeSeconds()))
+                    .collect(Collectors.toList());
+        }
+
         return new ParticipantSummaryDTO(
                 participant.getId(),
                 convertToUserSummaryDTO(participant.getUser()),
                 participant.isSubmittedRide(),
-                participant.getSubmittedActivityId()
+                participant.getSubmittedActivityId(),
+                segmentResultDTOs
         );
     }
 
