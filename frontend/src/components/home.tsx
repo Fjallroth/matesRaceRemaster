@@ -1,5 +1,5 @@
-// src/components/home.tsx
-import React, { useState, useEffect } from "react";
+// frontend/src/components/home.tsx
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Card,
@@ -14,51 +14,62 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PlusCircle, Users, Trophy, Settings, Loader2, AlertTriangle, Search } from "lucide-react";
 import RaceCard from "./RaceCard";
-import { Race, RaceOrganiser } from "@/types/raceTypes";
-import { parseISO } from 'date-fns'; // <--- IMPORT ADDED HERE
+import { Race } from "@/types/raceTypes"; // Removed RaceOrganiser as it's part of Race
+import { parseISO } from 'date-fns';
+import JoinRaceDialog from "./JoinRaceDialog"; // New Import
+import { useAuth } from "@/AuthContext"; // To check if user is logged in
 
 const Home = () => {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth(); // Get auth status
   const [activeTab, setActiveTab] = useState<"all" | "ongoing" | "upcoming">("all");
   const [showFinishedOnly, setShowFinishedOnly] = useState(false);
   const [races, setRaces] = useState<Race[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [isJoinRaceDialogOpen, setIsJoinRaceDialogOpen] = useState(false);
+
+
+  const fetchRaces = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/races", { // Fetches all races (public, and private ones if user is part of them - backend dependent)
+          headers: { 'Accept': 'application/json' },
+          credentials: 'include', // Important for auth
+      });
+      if (!response.ok) {
+        // No need to navigate to login from here, AuthContext handles it.
+        // Or, backend might return 401 if /api/races requires auth to see anything.
+        // For a public dashboard, /api/races should ideally return public races even if not logged in.
+        console.warn("Failed to fetch all races for home dashboard, status:", response.status);
+        // If it's a 401 and the endpoint *requires* auth, then set races to empty.
+        // If it can show public races without auth, handle accordingly.
+        setRaces([]); 
+        // Let's assume for now it might fail if not authed, but don't throw a blocking error.
+        if (response.status !== 401) { // Only throw error for non-auth issues.
+            throw new Error(`Failed to fetch races: ${response.statusText}`);
+        }
+      } else {
+        const data: Race[] = await response.json();
+        setRaces(data);
+      }
+    } catch (err: any) {
+      setError(err.message);
+      console.error("Error fetching races:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
 
   useEffect(() => {
-    const fetchRaces = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await fetch("/api/races", {
-            headers: { 'Accept': 'application/json' },
-            credentials: 'include',
-        });
-        if (!response.ok) {
-          if (response.status === 401) {
-            console.warn("Not authenticated to fetch all races for home dashboard.");
-            setRaces([]);
-            setIsLoading(false);
-            return;
-          }
-          throw new Error(`Failed to fetch races: ${response.statusText}`);
-        }
-        const data: Race[] = await response.json();
-        setRaces(data);
-      } catch (err: any) {
-        setError(err.message);
-        console.error("Error fetching races:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchRaces();
-  }, []);
+  }, [fetchRaces]);
 
-  const getRaceStatus = (startDate: string, endDate: string): "upcoming" | "ongoing" | "finished" => {
+  const getRaceStatus = (startDate?: string, endDate?: string): "upcoming" | "ongoing" | "finished" => {
+    if (!startDate || !endDate) return "upcoming";
     const now = new Date();
     const start = parseISO(startDate);
     const end = parseISO(endDate);
@@ -75,30 +86,51 @@ const Home = () => {
     }))
     .filter((race) => {
         const raceNameLower = race.raceName.toLowerCase();
-        const organiserNameLower = `${race.organiser.userStravaFirstName || ''} ${race.organiser.userStravaLastName || ''} ${race.organiser.displayName || ''}`.toLowerCase();
+        const organiserNameLower = `${race.organiser?.userStravaFirstName || ''} ${race.organiser?.userStravaLastName || ''} ${race.organiser?.displayName || ''}`.toLowerCase();
         const searchLower = searchTerm.toLowerCase();
 
         if (searchTerm && !raceNameLower.includes(searchLower) && !organiserNameLower.includes(searchLower)) {
             return false;
         }
+        // Filter out private races if the user is not authenticated (frontend filter, backend should ideally do this too)
+        // Or if the race list is already filtered by backend based on auth, this is just a safeguard.
+        // if (!isAuthenticated && race.isPrivate) {
+        //     return false; 
+        // }
         if (showFinishedOnly && race.status !== "finished") return false;
         if (activeTab !== "all" && race.status !== activeTab) return false;
         return true;
   });
 
   const handleCreateRace = () => {
+    if (!isAuthenticated) {
+        navigate("/login?message=Please login to create a race.");
+        return;
+    }
     navigate("/create-race");
   };
 
   const handleJoinRaceOpenDialog = () => {
-    alert("Placeholder: Open dialog to join a private race.");
+    if (!isAuthenticated) {
+        navigate("/login?message=Please login to join a race.");
+        return;
+    }
+    setIsJoinRaceDialogOpen(true);
   };
 
   const handleRaceClick = (id: number) => {
     navigate(`/race/${id}`);
   };
 
-  if (isLoading) {
+  const handleRaceJoined = () => {
+    // Refetch races or participating races to update UI
+    fetchRaces(); // Refetch all races for simplicity, or update MyRaces context
+    // Could also navigate to MyRaces or the specific race page
+    // navigate("/my-races"); 
+  };
+
+
+  if (isLoading && races.length === 0) { // Show full page loader only on initial load
     return (
       <div className="flex justify-center items-center min-h-screen">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -113,9 +145,9 @@ const Home = () => {
         <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
         <h2 className="text-xl font-semibold text-destructive mb-2">Could Not Load Races</h2>
         <p className="text-muted-foreground mb-4">{error}</p>
-        <p className="text-sm text-muted-foreground mb-4">This might be because you are not logged in, or there was a network issue.</p>
-        <Button onClick={() => window.location.reload()} className="mr-2">Try Again</Button>
-        <Button variant="outline" onClick={() => navigate("/login")}>Login</Button>
+        <p className="text-sm text-muted-foreground mb-4">This might be because you are not logged in, or there was a network issue. Public races might still be available.</p>
+        <Button onClick={fetchRaces} className="mr-2">Try Again</Button>
+        {!isAuthenticated && <Button variant="outline" onClick={() => navigate("/login")}>Login</Button>}
       </div>
     );
   }
@@ -134,9 +166,11 @@ const Home = () => {
           <Button variant="outline" onClick={handleJoinRaceOpenDialog}>
             <Users className="mr-2 h-4 w-4" /> Join Race
           </Button>
-          <Button variant="outline" onClick={() => navigate("/my-races")}>
-            <Settings className="mr-2 h-4 w-4" /> My Races
-          </Button>
+          {isAuthenticated && (
+            <Button variant="outline" onClick={() => navigate("/my-races")}>
+                <Settings className="mr-2 h-4 w-4" /> My Races
+            </Button>
+          )}
         </div>
       </div>
 
@@ -179,6 +213,13 @@ const Home = () => {
         </div>
       </div>
 
+      {isLoading && races.length > 0 && ( // Show a smaller loading indicator if races are already partially loaded
+        <div className="flex justify-center items-center py-8">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="ml-3 text-md">Updating races...</p>
+        </div>
+      )}
+
       {filteredRaces.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredRaces.map((race) => (
@@ -189,7 +230,8 @@ const Home = () => {
               status={race.status as "upcoming" | "ongoing" | "finished"}
               startDate={parseISO(race.startDate)}
               endDate={parseISO(race.endDate)}
-              participantCount={race.participants?.length || 0}
+              // Ensure participants is an array before accessing length, or use participantCount from DTO
+              participantCount={race.participantCount !== undefined ? race.participantCount : (race.participants?.length || 0)}
               organizer={{
                   stravaId: race.organiser.stravaId,
                   displayName: race.organiser.displayName,
@@ -203,16 +245,19 @@ const Home = () => {
           ))}
         </div>
       ) : (
-        <div className="text-center py-12">
-            <p className="text-xl text-muted-foreground">
-                {searchTerm ? "No races match your search." : "No races available for the selected filters."}
-            </p>
-            {searchTerm && (
-                <Button variant="link" onClick={() => setSearchTerm("")}>Clear search</Button>
-            )}
-        </div>
+        !isLoading && ( // Only show "no races" if not loading
+            <div className="text-center py-12">
+                <p className="text-xl text-muted-foreground">
+                    {searchTerm ? "No races match your search." : "No races available for the selected filters."}
+                </p>
+                {searchTerm && (
+                    <Button variant="link" onClick={() => setSearchTerm("")}>Clear search</Button>
+                )}
+            </div>
+        )
       )}
 
+      {/* Quick Stats Section (can be kept as is or updated with real data later) */}
       <div className="mt-12">
         <Card>
           <CardHeader>
@@ -232,13 +277,18 @@ const Home = () => {
                 <Users className="h-8 w-8 text-blue-500 mr-4" />
                 <div>
                   <p className="text-sm text-muted-foreground">Active Races Joined</p>
-                  <p className="text-2xl font-bold">0</p>
+                  <p className="text-2xl font-bold">0</p> {/* This could be updated from user's participating races */}
                 </div>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
+      <JoinRaceDialog
+        isOpen={isJoinRaceDialogOpen}
+        onOpenChange={setIsJoinRaceDialogOpen}
+        onRaceJoined={handleRaceJoined}
+      />
     </div>
   );
 };

@@ -1,14 +1,17 @@
+// backend/src/main/java/com/matesRace/backend/controller/RaceApiController.java
 package com.matesRace.backend.controller;
 
 import com.matesRace.backend.dto.RaceCreateDTO;
 import com.matesRace.backend.dto.RaceResponseDTO;
 import com.matesRace.backend.dto.ParticipantSummaryDTO;
 import com.matesRace.backend.dto.UserSummaryDTO;
-import com.matesRace.backend.model.Participant; // Ensure this import is correct
+import com.matesRace.backend.dto.JoinRaceRequestDto;
+import com.matesRace.backend.model.Participant;
 import com.matesRace.backend.model.Race;
 import com.matesRace.backend.model.User;
 import com.matesRace.backend.repository.RaceRepository;
 import com.matesRace.backend.repository.UserRepository;
+import com.matesRace.backend.repository.ParticipantRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +40,9 @@ public class RaceApiController {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private ParticipantRepository participantRepository;
 
     @PostMapping
     @Transactional
@@ -92,7 +98,7 @@ public class RaceApiController {
             }
         } catch (Exception e) {
             logger.error("Error parsing dates for new race: {}", e.getMessage());
-            return ResponseEntity.badRequest().body("Invalid date format. Please use ISO 8601 format (e.g., YYYY-MM-DDTHH:mm:ss.SSSZ)");
+            return ResponseEntity.badRequest().body("Invalid date format. Please use ISO 8601 format (e.g., yyyy-MM-ddTHH:mm:ss.SSSZ)");
         }
 
         newRace.setSegmentIds(raceDTO.getSegmentIds());
@@ -119,9 +125,6 @@ public class RaceApiController {
     @GetMapping
     @Transactional(readOnly = true)
     public ResponseEntity<List<RaceResponseDTO>> getAllRaces(@AuthenticationPrincipal OAuth2User oauth2User) {
-        if (oauth2User == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build(); // Or handle public view
-        }
         List<Race> races = raceRepository.findAll();
         List<RaceResponseDTO> raceDTOs = races.stream()
                 .map(race -> convertToRaceResponseDTO(race, false))
@@ -132,11 +135,7 @@ public class RaceApiController {
     @GetMapping("/{id}")
     @Transactional(readOnly = true)
     public ResponseEntity<RaceResponseDTO> getRaceById(@PathVariable Long id, @AuthenticationPrincipal OAuth2User oauth2User) {
-        if (oauth2User == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
-
-        Optional<Race> raceOpt = raceRepository.findById(id); // Uses @EntityGraph
+        Optional<Race> raceOpt = raceRepository.findById(id);
         if (!raceOpt.isPresent()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Race not found with ID: " + id);
         }
@@ -148,9 +147,6 @@ public class RaceApiController {
     @Transactional(readOnly = true)
     public ResponseEntity<List<RaceResponseDTO>> getParticipatingRaces(@AuthenticationPrincipal OAuth2User oauth2User) {
         if (oauth2User == null) {
-            // This was an error before as build() results in ResponseEntity<Void>
-            // or if you add .body("message") it is ResponseEntity<String>
-            // For consistency, let's throw ResponseStatusException or return properly typed error
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not authenticated");
         }
         long stravaId;
@@ -158,7 +154,6 @@ public class RaceApiController {
             stravaId = Long.parseLong(oauth2User.getName());
         } catch (NumberFormatException e) {
             logger.warn("Invalid Strava ID format for current user in getParticipatingRaces: {}", oauth2User.getName());
-            // Corrected: Throw exception to be handled by Spring, maintaining method signature compatibility
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Strava ID format for current user.");
         }
 
@@ -168,6 +163,75 @@ public class RaceApiController {
                 .collect(Collectors.toList());
         return ResponseEntity.ok(raceDTOs);
     }
+
+    @PostMapping("/{raceId}/join")
+    @Transactional
+    public ResponseEntity<?> joinRace(@PathVariable Long raceId,
+                                      @RequestBody JoinRaceRequestDto joinRequest,
+                                      @AuthenticationPrincipal OAuth2User oauth2User) {
+        if (oauth2User == null) {
+            logger.warn("Join attempt for race {} without authentication.", raceId);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User not authenticated.");
+        }
+
+        long userStravaId;
+        try {
+            userStravaId = Long.parseLong(oauth2User.getName());
+        } catch (NumberFormatException e) {
+            logger.warn("Invalid Strava ID format for joining user: {}", oauth2User.getName());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid user ID format.");
+        }
+
+        Optional<User> userOpt = userRepository.findByStravaId(userStravaId);
+        if (!userOpt.isPresent()) {
+            logger.error("Authenticated user with Strava ID {} not found in database.", userStravaId);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("User not found.");
+        }
+        User user = userOpt.get();
+
+        Optional<Race> raceOpt = raceRepository.findById(raceId);
+        if (!raceOpt.isPresent()) {
+            logger.warn("Join attempt for non-existent race ID: {}", raceId);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Race not found.");
+        }
+        Race race = raceOpt.get();
+
+        // Check if already a participant
+        boolean alreadyParticipant = race.getParticipants().stream()
+                .anyMatch(p -> p.getUser().getStravaId().equals(userStravaId));
+        if (alreadyParticipant) {
+            logger.info("User {} already a participant in race {}.", userStravaId, raceId);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body("You are already a participant in this race.");
+        }
+
+        // REMOVED: Logic that prevented organisers from joining their own race
+        // if (race.getOrganiser() != null && race.getOrganiser().getStravaId().equals(userStravaId)) {
+        //     logger.info("Organiser {} attempted to join their own race {} as participant.", userStravaId, raceId);
+        //     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Organisers cannot join their own race as a participant.");
+        // }
+
+        if (race.isPrivate()) {
+            if (joinRequest.getPassword() == null || !joinRequest.getPassword().equals(race.getPassword())) {
+                logger.warn("Incorrect password attempt for private race {} by user {}.", raceId, userStravaId);
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Incorrect password for private race.");
+            }
+        }
+
+        Participant newParticipant = new Participant();
+        newParticipant.setRace(race);
+        newParticipant.setUser(user);
+        newParticipant.setSubmittedRide(false);
+
+        try {
+            Participant savedParticipant = participantRepository.save(newParticipant);
+            logger.info("User {} successfully joined race {}.", userStravaId, raceId);
+            return ResponseEntity.ok(convertToParticipantSummaryDTO(savedParticipant));
+        } catch (Exception e) {
+            logger.error("Error saving participant for race {}: {}", raceId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Could not join race due to a server error.");
+        }
+    }
+
 
     private UserSummaryDTO convertToUserSummaryDTO(User user) {
         if (user == null) {
@@ -186,7 +250,6 @@ public class RaceApiController {
         if (participant == null) {
             return null;
         }
-        // These calls rely on Lombok generating getters in the Participant class
         return new ParticipantSummaryDTO(
                 participant.getId(),
                 convertToUserSummaryDTO(participant.getUser()),
@@ -200,26 +263,20 @@ public class RaceApiController {
             return null;
         }
 
-        List<ParticipantSummaryDTO> participantDTOs = Collections.emptyList(); // Default to empty list
-        if (includeParticipantsDetails && race.getParticipants() != null) {
-            participantDTOs = race.getParticipants().stream()
-                    .map(this::convertToParticipantSummaryDTO)
-                    .collect(Collectors.toList());
-        }
-
+        List<ParticipantSummaryDTO> participantDTOs = Collections.emptyList();
         int participantCount = 0;
+
         if (race.getParticipants() != null) {
-            // If participants list is available (e.g., eager loaded or accessed in session)
             participantCount = race.getParticipants().size();
+            if (includeParticipantsDetails) {
+                participantDTOs = race.getParticipants().stream()
+                        .map(this::convertToParticipantSummaryDTO)
+                        .collect(Collectors.toList());
+            }
         } else if (race.getId() != null) {
-            // Fallback if participants list is not loaded, get count from repository
-            // This ensures we don't trigger lazy loading unnecessarily just for count if not already loaded
-            // and avoid NullPointerException if race.getParticipants() is null.
             Integer countFromRepo = raceRepository.getParticipantCountForRace(race.getId());
             participantCount = (countFromRepo != null) ? countFromRepo : 0;
         }
-        // If it's a new, unsaved race, participantCount will remain 0.
-
 
         return new RaceResponseDTO(
                 race.getId(),
@@ -230,7 +287,7 @@ public class RaceApiController {
                 race.getSegmentIds(),
                 convertToUserSummaryDTO(race.getOrganiser()),
                 race.isPrivate(),
-                includeParticipantsDetails ? participantDTOs : null, // Only include full list if requested
+                includeParticipantsDetails ? participantDTOs : null,
                 participantCount
         );
     }

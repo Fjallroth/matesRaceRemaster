@@ -1,6 +1,4 @@
-// src/components/RaceCard.tsx
 import React from "react";
-import { format, formatDistanceToNow, parseISO } from "date-fns"; // Added parseISO
 import {
   Card,
   CardContent,
@@ -10,21 +8,20 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Users, Calendar, Lock } from "lucide-react";
-import { RaceOrganiser } from "@/types/raceTypes"; // Import your main organiser type
+import { format } from "date-fns";
+import { Users, Info, Lock, Unlock } from "lucide-react"; // Added Info icon
+import { RaceOrganiser } from "@/types/raceTypes"; // Ensure this type path is correct
 
-// Define props for the RaceCard component
 interface RaceCardProps {
-  id: string; // Keep as string if navigation uses string IDs
+  id: string; // Race ID is already a prop
   name: string;
-  status: "upcoming" | "ongoing" | "finished"; // This will be passed after calculation
-  startDate: Date; // Expect Date object
-  endDate: Date;   // Expect Date object
+  status: "upcoming" | "ongoing" | "finished";
+  startDate: Date;
+  endDate: Date;
   participantCount: number;
-  organizer: RaceOrganiser; // Use the backend-aligned organiser type
+  organizer: RaceOrganiser;
   isPrivate: boolean;
-  onClick: (id: string) => void;
+  onClick: () => void;
 }
 
 const RaceCard: React.FC<RaceCardProps> = ({
@@ -38,82 +35,66 @@ const RaceCard: React.FC<RaceCardProps> = ({
   isPrivate,
   onClick,
 }) => {
-  const getStatusBadge = () => {
-    // Colors moved to parent component to avoid re-declaration if status is pre-calculated
-    if (status === "upcoming") return <Badge className="bg-blue-500 text-primary-foreground">Upcoming</Badge>;
-    if (status === "ongoing") return <Badge className="bg-green-500 text-primary-foreground">Ongoing</Badge>;
-    if (status === "finished") return <Badge className="bg-gray-500 text-primary-foreground">Finished</Badge>;
-    return <Badge>{status}</Badge>; // Fallback
-  };
-
-  const organizerName =
-    (organizer.userStravaFirstName || organizer.userStravaLastName
-      ? `${organizer.userStravaFirstName || ""} ${organizer.userStravaLastName || ""}`
-      : organizer.displayName) || `User ${organizer.stravaId}`;
-
-  const getInitials = (): string => {
-    const first = organizer.userStravaFirstName?.[0] || "";
-    const last = organizer.userStravaLastName?.[0] || "";
-    return (first + last).toUpperCase() || "MR";
+  const getStatusBadgeColor = () => {
+    switch (status) {
+      case "upcoming":
+        return "bg-blue-500 hover:bg-blue-600";
+      case "ongoing":
+        return "bg-green-500 hover:bg-green-600";
+      case "finished":
+        return "bg-gray-500 hover:bg-gray-600";
+      default:
+        return "bg-gray-200 text-gray-800";
+    }
   };
 
   return (
     <Card
-      className="hover:shadow-lg transition-shadow duration-200 cursor-pointer flex flex-col h-full bg-card text-card-foreground"
-      onClick={() => onClick(id)}
+      className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col cursor-pointer h-full"
+      onClick={onClick}
     >
       <CardHeader className="pb-3">
-        <div className="flex justify-between items-start gap-2">
-          <CardTitle className="text-lg font-semibold leading-tight">
+        <div className="flex justify-between items-start">
+          <CardTitle className="text-xl font-semibold text-primary leading-tight">
             {name}
           </CardTitle>
-          <div className="flex flex-col items-end flex-shrink-0 space-y-1">
-            {getStatusBadge()}
-            {isPrivate && (
-              <Badge variant="outline" className="border-orange-500 text-orange-600 mt-1">
+          <div className="flex flex-col items-end space-y-1">
+            <Badge className={`${getStatusBadgeColor()} text-white text-xs px-2 py-0.5`}>
+              {status.charAt(0).toUpperCase() + status.slice(1)}
+            </Badge>
+            {isPrivate ? (
+              <Badge variant="outline" className="border-orange-400 text-orange-500 text-xs px-2 py-0.5">
                 <Lock className="h-3 w-3 mr-1" /> Private
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="border-green-400 text-green-500 text-xs px-2 py-0.5">
+                <Unlock className="h-3 w-3 mr-1" /> Public
               </Badge>
             )}
           </div>
         </div>
-        <CardDescription>
-          <div className="flex items-center text-xs text-muted-foreground mt-1">
-            <Avatar className="h-4 w-4 mr-1.5">
-              <AvatarImage src={organizer.userStravaPic} alt={organizerName} />
-              <AvatarFallback className="text-[8px]">
-                {getInitials()}
-              </AvatarFallback>
-            </Avatar>
-            Organized by {organizerName}
-          </div>
+        <CardDescription className="text-xs text-muted-foreground">
+          Organized by: {organizer?.userStravaFirstName || organizer?.displayName || `User ${organizer?.stravaId}`}
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex-grow pb-4">
-        <div className="space-y-2">
-          <div className="flex items-center text-sm text-muted-foreground">
-            <Calendar className="h-4 w-4 mr-2 text-muted-foreground/80" />
-            <span>
-              {format(startDate, "MMM d")} - {format(endDate, "MMM d, yyyy")}
-            </span>
-          </div>
-          <div className="flex items-center text-sm text-muted-foreground">
-            <Users className="h-4 w-4 mr-2 text-muted-foreground/80" />
-            <span>
-              {participantCount} participant{participantCount !== 1 ? "s" : ""}
-              {/* This count will be 0 or based on fetched data */}
-            </span>
-          </div>
+      <CardContent className="flex-grow space-y-2 text-sm">
+        <div>
+          <span className="font-medium text-muted-foreground">Dates: </span>
+          {format(startDate, "MMM d, yyyy")} - {format(endDate, "MMM d, yyyy")}
+        </div>
+        <div className="flex items-center">
+          <Users className="h-4 w-4 mr-2 text-muted-foreground" />
+          <span className="text-muted-foreground">Participants: </span>
+          <span className="ml-1 font-semibold">{participantCount}</span>
+        </div>
+        <div className="flex items-center mt-1">
+            <Info className="h-4 w-4 mr-2 text-muted-foreground" />
+            <span className="text-muted-foreground">Race ID: </span>
+            <span className="ml-1 font-semibold text-indigo-600">{id}</span>
         </div>
       </CardContent>
-      <CardFooter className="pt-3 pb-4 border-t">
-        <p className="text-xs text-muted-foreground/70">
-          {status === "upcoming" && startDate > new Date() && `Starts in ${formatDistanceToNow(startDate)}`}
-          {status === "ongoing" && endDate > new Date() && `Ends in ${formatDistanceToNow(endDate)}`}
-          {status === "finished" && `Finished ${formatDistanceToNow(endDate)} ago`}
-           {status === "upcoming" && startDate <= new Date() && `Starting soon`} {/* Edge case for past start but not yet 'ongoing' based on exact now */}
-           {status === "ongoing" && endDate <= new Date() && `Ending soon`}  {/* Edge case for past end but not yet 'finished' */}
-
-        </p>
+      <CardFooter className="pt-3 pb-4 text-xs text-muted-foreground">
+        Click to view details
       </CardFooter>
     </Card>
   );
