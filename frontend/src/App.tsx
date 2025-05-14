@@ -2,7 +2,6 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import Login from './pages/Login.tsx';
 import Home from './components/home.tsx'; // Assuming this is your home component
-import MyRaces from './pages/MyRaces.tsx';
 import RaceDetail from './pages/RaceDetail.tsx';
 import CreateRaceForm from './components/CreateRaceForm.tsx';
 import { useAuth } from './AuthContext.tsx'; // Import useAuth
@@ -52,10 +51,9 @@ const App: React.FC = () => {
         {/* Protected Routes */}
         <Route element={<ProtectedRoute />}> {/* Wrap protected routes */}
           <Route path="/home" element={<Home />} />
-          <Route path="/my-races" element={<MyRaces />} />
           <Route path="/race/:raceId" element={<RaceDetail />} />
           <Route path="/create-race" element={<CreateRaceForm />} />
-          {/* Add any other routes that need authentication here */}
+          {/* Add any other routes that need authentication here, edit race and manage participants */}
         </Route>
 
         {/* Default Route */}
