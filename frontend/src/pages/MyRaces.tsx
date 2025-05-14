@@ -124,6 +124,9 @@ const MyRaces: React.FC = () => {
   const handleViewRace = (id: number) => {
     navigate(`/race/${id}`);
   };
+  const navigateToDashboard = () =>{
+    navigate(`/home`)
+  }
 
   const getRaceStatus = (startDate?: string, endDate?: string): "upcoming" | "ongoing" | "finished" => {
     if (!startDate || !endDate) return "upcoming"; // Default if dates are missing
@@ -283,6 +286,7 @@ const MyRaces: React.FC = () => {
             Manage your races and participants
           </p>
         </div>
+        
         <div className="flex gap-3">
           <Button
             className="bg-green-600 hover:bg-green-700 text-white" // Explicitly set text color for dark variants
@@ -290,6 +294,11 @@ const MyRaces: React.FC = () => {
           >
             <PlusCircle className="mr-2 h-4 w-4" /> Create Race
           </Button>
+          <Button
+            className="outline" onClick={navigateToDashboard}
+          >
+             Dashboard
+          </Button> 
         </div>
       </div>
 
