@@ -4,6 +4,7 @@ import Login from './pages/Login.tsx';
 import Home from './components/home.tsx'; // Assuming this is your home component
 import RaceDetail from './pages/RaceDetail.tsx';
 import CreateRaceForm from './components/CreateRaceForm.tsx';
+import EditRacePage from './pages/EditRacePage.tsx'; 
 import { useAuth } from './AuthContext.tsx'; // Import useAuth
 
 // Define a type for your user object if you haven't already
@@ -53,7 +54,8 @@ const App: React.FC = () => {
           <Route path="/home" element={<Home />} />
           <Route path="/race/:raceId" element={<RaceDetail />} />
           <Route path="/create-race" element={<CreateRaceForm />} />
-          {/* Add any other routes that need authentication here, edit race and manage participants */}
+          <Route path="/edit-race/:raceId" element={<EditRacePage />} />
+          {/* Add any other routes that need authentication here manage participants */}
         </Route>
 
         {/* Default Route */}

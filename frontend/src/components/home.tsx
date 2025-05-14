@@ -115,20 +115,13 @@ const Home = () => {
     toast({ title: "Race Joined!", description: "You have successfully joined the race." });
   };
 
-  // --- New handlers for race actions ---
   const handleEditRaceClick = (raceId: string) => {
-    // Navigate to an edit race page (ensure this route and component exist)
-    // e.g., navigate(`/edit-race/${raceId}`);
-    console.log(`Placeholder: Edit race ${raceId}`);
-    toast({ title: "Edit Race", description: `Navigating to edit page for race ${raceId}. (Placeholder)` });
-    // Example navigation: navigate(`/race/${raceId}/edit`); // You'll need to create this route and page
+    navigate(`/edit-race/${raceId}`);
   };
 
   const handleManageParticipantsClick = (raceId: string) => {
-    // Navigate to a manage participants page (ensure this route and component exist)
-    // e.g., navigate(`/race/${raceId}/manage-participants`);
     console.log(`Placeholder: Manage participants for race ${raceId}`);
-    toast({ title: "Manage Participants", description: `Navigating to participant management for race ${raceId}. (Placeholder)` });
+    toast({ title: "Manage Participants", description: `This feature is coming soon for race ${raceId}.` });
     // Example navigation: navigate(`/race/${raceId}/participants`); // You'll need to create this route and page
   };
 
@@ -137,25 +130,33 @@ const Home = () => {
       return;
     }
     try {
-      // Replace with your actual API call
       const response = await fetch(`/api/races/${raceId}`, { 
         method: 'DELETE',
         credentials: 'include',
+        headers: {
+             'Accept': 'application/json',
+        }
       });
 
       if (response.ok) {
         toast({ title: "Race Deleted", description: `Race ${raceId} has been successfully deleted.` });
         fetchRaces(); // Refresh the list of races
       } else {
-        const errorData = await response.json().catch(() => ({ message: "Failed to delete race." }));
-        throw new Error(errorData.message || `Failed to delete race. Status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({ message: "Failed to delete race. The server response was not valid JSON." }));
+        if (response.status === 401 || response.status === 403) {
+             toast({ variant: "destructive", title: "Unauthorized", description: errorData.message || "You are not authorized to delete this race or your session expired." });
+        } else if (response.status === 404) {
+             toast({ variant: "destructive", title: "Not Found", description: errorData.message || "Race not found." });
+        } else {
+            toast({ variant: "destructive", title: "Deletion Failed", description: errorData.message || `Could not delete the race. Status: ${response.status}` });
+        }
+        console.error("Error deleting race, status:", response.status, "message:", errorData.message);
       }
     } catch (err: any) {
       console.error("Error deleting race:", err);
-      toast({ variant: "destructive", title: "Error", description: err.message || "Could not delete the race." });
+      toast({ variant: "destructive", title: "Error", description: err.message || "An unexpected error occurred while trying to delete the race." });
     }
   };
-
 
 
   if (isLoading && races.length === 0) {
