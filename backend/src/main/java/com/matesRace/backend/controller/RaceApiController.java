@@ -1,5 +1,6 @@
 // backend/src/main/java/com/matesRace/backend/controller/RaceApiController.java
 package com.matesRace.backend.controller;
+
 import com.matesRace.backend.dto.ParticipantSegmentResultDTO;
 import com.matesRace.backend.dto.StravaActivityDTO;
 import com.matesRace.backend.dto.SubmitActivityRequestDTO;
@@ -26,6 +27,7 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
@@ -150,6 +152,149 @@ public class RaceApiController {
         return ResponseEntity.ok(convertToRaceResponseDTO(race, true));
     }
 
+    @PutMapping("/{id}")
+    @Transactional
+    public ResponseEntity<?> editRace(@PathVariable Long id, @RequestBody RaceCreateDTO raceUpdateDTO, @AuthenticationPrincipal OAuth2User oauth2User) {
+        if (oauth2User == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User not authenticated");
+        }
+
+        String stravaIdStr = oauth2User.getName();
+        if (stravaIdStr == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Could not determine user Strava ID");
+        }
+
+        long userStravaId;
+        try {
+            userStravaId = Long.parseLong(stravaIdStr);
+        } catch (NumberFormatException e) {
+            logger.warn("Invalid Strava ID format in editRace for user: {}", stravaIdStr);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid user Strava ID format");
+        }
+
+        Optional<Race> raceOpt = raceRepository.findById(id);
+        if (!raceOpt.isPresent()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Race not found with ID: " + id);
+        }
+        Race raceToUpdate = raceOpt.get();
+
+        if (raceToUpdate.getOrganiser() == null || raceToUpdate.getOrganiser().getStravaId() != userStravaId) {
+            logger.warn("User {} attempted to edit race {} not owned by them.", userStravaId, id);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized to edit this race.");
+        }
+
+        // Validate DTO
+        if (raceUpdateDTO.getRaceName() == null || raceUpdateDTO.getRaceName().trim().isEmpty()) {
+            return ResponseEntity.badRequest().body("Race name is required");
+        }
+        if (raceUpdateDTO.getStartDate() == null || raceUpdateDTO.getEndDate() == null) {
+            return ResponseEntity.badRequest().body("Start date and end date are required");
+        }
+        if (raceUpdateDTO.getSegmentIds() == null || raceUpdateDTO.getSegmentIds().isEmpty()) {
+            return ResponseEntity.badRequest().body("At least one segment ID is required");
+        }
+        if (!"public".equalsIgnoreCase(raceUpdateDTO.getPrivacy()) && !"private".equalsIgnoreCase(raceUpdateDTO.getPrivacy())) {
+            return ResponseEntity.badRequest().body("Privacy must be 'public' or 'private'");
+        }
+        if ("private".equalsIgnoreCase(raceUpdateDTO.getPrivacy()) && (raceUpdateDTO.getPassword() == null || raceUpdateDTO.getPassword().length() < 4)) {
+            return ResponseEntity.badRequest().body("Password is required for private races and must be at least 4 characters");
+        }
+
+
+        raceToUpdate.setRaceName(raceUpdateDTO.getRaceName());
+        raceToUpdate.setRaceInfo(raceUpdateDTO.getDescription());
+
+        try {
+            raceToUpdate.setStartDate(Instant.parse(raceUpdateDTO.getStartDate()));
+            raceToUpdate.setEndDate(Instant.parse(raceUpdateDTO.getEndDate()));
+            if (raceToUpdate.getEndDate().isBefore(raceToUpdate.getStartDate())) {
+                return ResponseEntity.badRequest().body("End date must be after start date");
+            }
+        } catch (Exception e) {
+            logger.error("Error parsing dates for race update {}: {}", id, e.getMessage());
+            return ResponseEntity.badRequest().body("Invalid date format. Please use ISO 8601 format (e.g., yyyy-MM-ddTHH:mm:ss.SSSZ)");
+        }
+
+        raceToUpdate.setSegmentIds(raceUpdateDTO.getSegmentIds());
+
+        if ("private".equalsIgnoreCase(raceUpdateDTO.getPrivacy())) {
+            raceToUpdate.setPassword(raceUpdateDTO.getPassword());
+            raceToUpdate.setPrivate(true);
+        } else {
+            raceToUpdate.setPassword(null); // Clear password if race becomes public
+            raceToUpdate.setPrivate(false);
+        }
+
+        // Prevent changing organiser during edit
+        // raceToUpdate.setOrganiser(raceToUpdate.getOrganiser());
+
+
+        try {
+            Race updatedRace = raceRepository.save(raceToUpdate);
+            logger.info("Race with ID: {} updated successfully by user {}.", updatedRace.getId(), userStravaId);
+            return ResponseEntity.ok(convertToRaceResponseDTO(updatedRace, true));
+        } catch (Exception e) {
+            logger.error("Error updating race {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to update race due to server error");
+        }
+    }
+
+    @DeleteMapping("/{id}")
+    @Transactional
+    public ResponseEntity<?> deleteRace(@PathVariable Long id, @AuthenticationPrincipal OAuth2User oauth2User) {
+        if (oauth2User == null) {
+            logger.warn("Delete attempt for race {} without authentication.", id);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User not authenticated.");
+        }
+
+        long userStravaId;
+        try {
+            userStravaId = Long.parseLong(oauth2User.getName());
+        } catch (NumberFormatException e) {
+            logger.warn("Invalid Strava ID format for user attempting to delete race {}: {}", id, oauth2User.getName());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid user ID format.");
+        }
+
+        Optional<Race> raceOpt = raceRepository.findById(id);
+        if (!raceOpt.isPresent()) {
+            logger.warn("Delete attempt for non-existent race ID: {}", id);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Race not found.");
+        }
+        Race raceToDelete = raceOpt.get();
+
+        if (raceToDelete.getOrganiser() == null || raceToDelete.getOrganiser().getStravaId() != userStravaId) {
+            logger.warn("User {} attempted to delete race {} not owned by them. Actual owner: {}",
+                    userStravaId, id, raceToDelete.getOrganiser() != null ? raceToDelete.getOrganiser().getStravaId() : "null");
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized to delete this race.");
+        }
+
+        try {
+            // First, delete associated participants to avoid constraint violations
+            // participantRepository.deleteByRaceId(id); // Assuming you add this method in ParticipantRepository
+            // Alternatively, if Participant entities have a direct reference to Race and cascade delete is set up:
+            // raceToDelete.getParticipants().clear(); // This might be needed if cascade isn't working as expected or not set for removal
+
+            // It's generally safer to explicitly delete children or rely on JPA cascade settings.
+            // For now, let's assume direct deletion of race will handle participants if cascade is configured.
+            // If not, you'll need to delete participants first.
+
+            // Manually delete participants to ensure they are removed before the race
+            List<Participant> participants = participantRepository.findByRaceId(id);
+            for (Participant participant : participants) {
+                participantRepository.delete(participant);
+            }
+
+
+            raceRepository.delete(raceToDelete);
+            logger.info("Race with ID: {} deleted successfully by user {}.", id, userStravaId);
+            return ResponseEntity.noContent().build(); // Or ResponseEntity.ok().body("Race deleted successfully");
+        } catch (Exception e) {
+            logger.error("Error deleting race {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to delete race due to a server error.");
+        }
+    }
+
+
     @GetMapping("/participating")
     @Transactional(readOnly = true)
     public ResponseEntity<List<RaceResponseDTO>> getParticipatingRaces(@AuthenticationPrincipal OAuth2User oauth2User) {
@@ -210,12 +355,6 @@ public class RaceApiController {
             logger.info("User {} already a participant in race {}.", userStravaId, raceId);
             return ResponseEntity.status(HttpStatus.CONFLICT).body("You are already a participant in this race.");
         }
-
-        // REMOVED: Logic that prevented organisers from joining their own race
-        // if (race.getOrganiser() != null && race.getOrganiser().getStravaId().equals(userStravaId)) {
-        //     logger.info("Organiser {} attempted to join their own race {} as participant.", userStravaId, raceId);
-        //     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Organisers cannot join their own race as a participant.");
-        // }
 
         if (race.isPrivate()) {
             if (joinRequest.getPassword() == null || !joinRequest.getPassword().equals(race.getPassword())) {
@@ -324,9 +463,13 @@ public class RaceApiController {
                         .collect(Collectors.toList());
             }
         } else if (race.getId() != null) {
+            // This attempts to get participant count directly if participants list is null but ID exists
+            // It might indicate a detached entity or a projection query was used.
+            // For consistency, ensure race.getParticipants() is populated or handle this case explicitly.
             Integer countFromRepo = raceRepository.getParticipantCountForRace(race.getId());
             participantCount = (countFromRepo != null) ? countFromRepo : 0;
         }
+
 
         return new RaceResponseDTO(
                 race.getId(),
@@ -337,8 +480,8 @@ public class RaceApiController {
                 race.getSegmentIds(),
                 convertToUserSummaryDTO(race.getOrganiser()),
                 race.isPrivate(),
-                includeParticipantsDetails ? participantDTOs : null,
-                participantCount
+                includeParticipantsDetails ? participantDTOs : null, // Only include full details if requested
+                participantCount // Always include participant count
         );
     }
 }

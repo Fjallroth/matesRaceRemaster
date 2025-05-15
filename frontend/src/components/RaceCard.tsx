@@ -131,7 +131,6 @@ const RaceCard: React.FC<RaceCardProps> = ({
               size="sm"
               variant="destructive"
               onClick={(e) => handleActionClick(e, () => onDeleteRaceClick?.(id))}
-              disabled={status === 'ongoing'} // Or based on other conditions like participant count > 0
               title="Delete Race"
             >
               <Trash2 className="h-4 w-4 md:mr-1" /> <span className="hidden md:inline">Delete</span>
