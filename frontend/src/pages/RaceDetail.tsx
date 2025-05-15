@@ -1,6 +1,8 @@
-// src/pages/RaceDetail.tsx
+// frontend/src/pages/RaceDetail.tsx
+// (Assuming this is the version from the latest content_fetcher output)
+
 import React, { useState, useEffect, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom"; // Added Link
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
@@ -28,6 +30,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogClose // Added DialogClose
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -51,19 +54,23 @@ import {
   Settings,
   Info,
   ListChecks,
+  Trash2, // Added Trash2
+  Edit3,  // Added Edit3
+  Crown,  // Added Crown
+  AlertTriangle // Added AlertTriangle
 } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
-import { Race, RaceOrganiser, RaceParticipant, StravaActivity, ParticipantSegmentResult } from "@/types/raceTypes"; // Updated imports
+import { Race, RaceOrganiser, RaceParticipant, StravaActivity, ParticipantSegmentResult } from "@/types/raceTypes";
 import { useAuth } from "@/AuthContext";
-import { useToast } from "@/components/ui/use-toast"; // For showing messages
+import { useToast } from "@/components/ui/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Added Select for activity submission (though it was in your old code)
 
 
-// Updated DisplayParticipantFromRace to use new types and improve derivation
 interface DisplayParticipantFromRace extends RaceParticipant {
   name: string;
   totalTime?: number;
   segmentTimes?: Record<string, number>;
-  profileImage?: string; // From user.userStravaPic
+  profileImage?: string;
 }
 
 interface DisplaySegment {
@@ -78,22 +85,24 @@ interface DisplaySegment {
 const RaceDetail: React.FC = () => {
   const { raceId } = useParams<{ raceId: string }>();
   const navigate = useNavigate();
-  const { user: currentUser, isAuthenticated } = useAuth();
-  const { toast } = useToast(); // For displaying notifications
+  const { user: currentUser, isAuthenticated, isLoading: isAuthLoading } = useAuth(); // Capture isLoading as isAuthLoading
+  const { toast } = useToast();
 
   const [race, setRace] = useState<Race | null>(null);
   const [displaySegments, setDisplaySegments] = useState<DisplaySegment[]>([]);
   const [leaderboardParticipants, setLeaderboardParticipants] = useState<DisplayParticipantFromRace[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(true); // This is for race data loading
   const [error, setError] = useState<string | null>(null);
 
-  // State for Submit Activity Dialog
   const [submitDialogOpen, setSubmitDialogOpen] = useState<boolean>(false);
   const [stravaActivities, setStravaActivities] = useState<StravaActivity[]>([]);
   const [isFetchingActivities, setIsFetchingActivities] = useState<boolean>(false);
   const [activityFetchError, setActivityFetchError] = useState<string | null>(null);
   const [isSubmittingActivity, setIsSubmittingActivity] = useState<boolean>(false);
   const [activitySubmissionError, setActivitySubmissionError] = useState<string | null>(null);
+  const [selectedActivity, setSelectedActivity] = useState<string | null>(null); // For activity dialog
+
+  const isOrganizer = race?.organiser?.stravaId?.toString() === currentUser?.stravaId;
 
 
   const mapParticipantsForDisplay = useCallback((participants?: RaceParticipant[]): DisplayParticipantFromRace[] => {
@@ -108,18 +117,15 @@ const RaceDetail: React.FC = () => {
         p.segmentResults.forEach(sr => {
           if (sr.segmentId && sr.elapsedTimeSeconds !== undefined && sr.elapsedTimeSeconds !== null) {
             segTimes[sr.segmentId.toString()] = sr.elapsedTimeSeconds;
-            totalTimeSecs += sr.elapsedTimeSeconds;
+            totalTimeSecs! += sr.elapsedTimeSeconds; // Use non-null assertion if totalTimeSecs is initialized
           }
         });
-        // If all segments have null/undefined time, totalTime remains undefined
         if (totalTimeSecs !== undefined && Object.keys(segTimes).length === 0 && (race?.segmentIds?.length || 0) > 0) {
-            totalTimeSecs = undefined; // No valid segment efforts found
+            totalTimeSecs = undefined;
         } else if (totalTimeSecs === 0 && (race?.segmentIds?.length || 0) > 0 && Object.keys(segTimes).length === 0) {
-            // Case where total is 0 because no segmentResults had time, but there are race segments.
             totalTimeSecs = undefined;
         }
       }
-
       return {
         ...p,
         name: `${user.userStravaFirstName || ''} ${user.userStravaLastName || ''}`.trim() || user.displayName || `User ${user.stravaId}`,
@@ -128,9 +134,9 @@ const RaceDetail: React.FC = () => {
         segmentTimes: segTimes,
       };
     });
-  }, [race?.segmentIds]); // Add race.segmentIds as dependency
+  }, [race?.segmentIds]);
 
-  const fetchRaceDetails = useCallback(async () => { // Wrapped in useCallback
+  const fetchRaceDetails = useCallback(async () => {
     if (!raceId) {
       setError("Race ID is missing.");
       setIsLoading(false);
@@ -144,20 +150,16 @@ const RaceDetail: React.FC = () => {
           credentials: 'include',
       });
       if (!response.ok) {
-        if (response.status === 401) navigate('/login');
+        if (response.status === 401 && !isAuthLoading) navigate('/login'); // Only redirect if not in initial auth loading phase
         if (response.status === 404) throw new Error("Race not found.");
-        throw new Error(`Failed to fetch race details: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({ message: `Failed to fetch race details: ${response.statusText}` }));
+        throw new Error(errorData.message || `Failed to fetch race details: ${response.statusText}`);
       }
       const data: Race = await response.json();
       setRace(data);
 
       const segmentDetailsPromises = data.segmentIds.map(async (id) => {
-          // In a real app, you might fetch segment names from Strava via your backend here
-          // For now, use placeholder name.
-          // The segment names should ideally come from the backend if they are pre-fetched
-          // or use segment name from p.segmentResults when available for the leaderboard.
           let segmentName = `Segment ${id}`;
-          // Attempt to find the segment name from the first participant who has this segment
           const participantWithSegment = data.participants?.find(par => par.segmentResults?.find(sr => sr.segmentId === id && sr.segmentName));
           if (participantWithSegment) {
               const foundSegmentResult = participantWithSegment.segmentResults?.find(sr => sr.segmentId === id && sr.segmentName);
@@ -165,7 +167,6 @@ const RaceDetail: React.FC = () => {
                 segmentName = foundSegmentResult.segmentName;
               }
           }
-
           return {
               id: id,
               name: segmentName,
@@ -174,28 +175,28 @@ const RaceDetail: React.FC = () => {
       });
       const detailedSegments = await Promise.all(segmentDetailsPromises);
       setDisplaySegments(detailedSegments);
-
       setLeaderboardParticipants(mapParticipantsForDisplay(data.participants));
-
     } catch (err: any) {
       setError(err.message);
       console.error("Error fetching race details:", err);
     } finally {
       setIsLoading(false);
     }
-  }, [raceId, navigate, mapParticipantsForDisplay]); // Added mapParticipantsForDisplay
+  }, [raceId, navigate, mapParticipantsForDisplay, isAuthLoading]);
 
   useEffect(() => {
-    if (isAuthenticated) {
-        fetchRaceDetails();
-    } else if (isAuthenticated === false && !isLoading) { // Avoid redirect during initial auth load
-        navigate('/login');
+    // Wait for auth check to complete before fetching race details or redirecting
+    if (!isAuthLoading) {
+      if (isAuthenticated) {
+          fetchRaceDetails();
+      } else {
+          navigate('/login');
+      }
     }
-  }, [isAuthenticated, isLoading, fetchRaceDetails, navigate]); // Added fetchRaceDetails
+  }, [isAuthenticated, isAuthLoading, fetchRaceDetails, navigate]);
 
-  // Function to fetch Strava activities for the dialog
   const fetchUserStravaActivities = async () => {
-    if (!raceId || !race) { // Check if race object is loaded
+    if (!raceId || !race) {
         setActivityFetchError("Race details not available to fetch activities.");
         return;
     }
@@ -213,7 +214,7 @@ const RaceDetail: React.FC = () => {
         const activities: StravaActivity[] = await response.json();
         setStravaActivities(activities);
         if (activities.length === 0) {
-            setActivityFetchError("No recent Strava 'Ride' activities found within the race period.");
+            setActivityFetchError("No recent Strava 'Ride' activities found within the race period. Check activity type and date range.");
         }
     } catch (err: any) {
         console.error("Error fetching Strava activities:", err);
@@ -223,9 +224,8 @@ const RaceDetail: React.FC = () => {
     }
   };
 
-  // Function to submit the selected activity
-  const handleActivitySubmit = async (activityId: number) => {
-    if (!raceId) return;
+  const handleActivitySubmit = async () => { // Renamed from your version to be less generic
+    if (!raceId || !selectedActivity) return; // Use selectedActivity from state
     setIsSubmittingActivity(true);
     setActivitySubmissionError(null);
     try {
@@ -236,7 +236,7 @@ const RaceDetail: React.FC = () => {
                 'Accept': 'application/json',
             },
             credentials: 'include',
-            body: JSON.stringify({ activityId }),
+            body: JSON.stringify({ activityId: Number(selectedActivity) }), // Ensure activityId is a number
         });
 
         if (!response.ok) {
@@ -245,7 +245,8 @@ const RaceDetail: React.FC = () => {
         }
         toast({ title: "Success!", description: "Your activity has been submitted." });
         setSubmitDialogOpen(false);
-        fetchRaceDetails(); // Refresh race details to update leaderboard and submission status
+        setSelectedActivity(null);
+        fetchRaceDetails();
     } catch (err: any) {
         console.error("Error submitting activity:", err);
         setActivitySubmissionError(err.message || "Could not submit activity.");
@@ -254,75 +255,161 @@ const RaceDetail: React.FC = () => {
         setIsSubmittingActivity(false);
     }
   };
-
-  // Open dialog and fetch activities
-  useEffect(() => {
-    if (submitDialogOpen && raceId && race?.startDate && race?.endDate) {
-      
-      if (!isFetchingActivities && stravaActivities.length === 0) {
-        fetchUserStravaActivities();
-      }
-    } else if (!submitDialogOpen) {
-
-      setStravaActivities([]);
-      setActivityFetchError(null);
+  
+  const handleOpenSubmitRideDialog = () => {
+    if (raceId && race?.startDate && race?.endDate) {
+      fetchUserStravaActivities();
     }
+    setSubmitDialogOpen(true);
+  };
 
-  }, [submitDialogOpen, raceId, race?.startDate, race?.endDate, isFetchingActivities]); 
+  const handleDeleteRace = async () => {
+    if (!race || !race.id || !isOrganizer) return;
+
+    try {
+      const response = await fetch(`/api/races/${race.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Race Deleted",
+          description: `${race.raceName} has been successfully deleted.`,
+        });
+        navigate('/my-races'); 
+      } else {
+        const errorData = await response.json().catch(() => ({ message: "Failed to delete race."}));
+        throw new Error(errorData.message || "Failed to delete race.");
+      }
+    } catch (err: any) {
+      toast({
+        title: "Error Deleting Race",
+        description: err.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteParticipant = async (participantId: number) => {
+    console.log(`[DEL_PARTICIPANT] START - ID: ${participantId}, Timestamp: ${new Date().toISOString()}`);
+    console.log("[DEL_PARTICIPANT] Current 'race' state at START:", JSON.stringify(race)); // Stringify to capture snapshot
+    console.log("[DEL_PARTICIPANT] 'isOrganizer' at START:", isOrganizer);
+    console.log("[DEL_PARTICIPANT] 'currentUser' at START:", JSON.stringify(currentUser));
+  
+    if (!race || !race.id || !participantId || !isOrganizer) {
+      console.error(`[DEL_PARTICIPANT] PRE-CONDITION FAILED. Race ID: ${race?.id}, Participant ID: ${participantId}, Is Organizer: ${isOrganizer}`);
+      toast({
+        title: "Cannot Remove Participant",
+        description: "Pre-condition to remove participant not met. Race data might be missing or you might not be the organizer.",
+        variant: "destructive",
+      });
+      return;
+    }
+    console.log("[DEL_PARTICIPANT] Pre-conditions PASSED.");
+  
+    try {
+      console.log(`[DEL_PARTICIPANT] Attempting FETCH to /api/races/${race.id}/participants/${participantId}`);
+      const response = await fetch(`/api/races/${race.id}/participants/${participantId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      console.log(`[DEL_PARTICIPANT] FETCH completed. Status: ${response.status}, OK: ${response.ok}`);
+  
+      if (response.status === 204 || response.ok) {
+        console.log("[DEL_PARTICIPANT] SUCCESS block entered.");
+        toast({
+          title: "Participant Removed",
+          description: "The participant has been successfully removed from the race.",
+        });
+  
+        setRace(prevRace => {
+          console.log("[DEL_PARTICIPANT] setRace updater function called.");
+          if (!prevRace) {
+            console.error("[DEL_PARTICIPANT] ERROR in setRace: prevRace is null or undefined!");
+            return null;
+          }
+          console.log("[DEL_PARTICIPANT] prevRace.participants before filter:", JSON.stringify(prevRace.participants));
+          console.log("[DEL_PARTICIPANT] participantId to remove:", participantId);
+  
+          const updatedParticipants = prevRace.participants?.filter(p => p.id !== participantId) || [];
+          console.log("[DEL_PARTICIPANT] updatedParticipants after filter:", JSON.stringify(updatedParticipants));
+          
+          setLeaderboardParticipants(mapParticipantsForDisplay(updatedParticipants));
+          console.log("[DEL_PARTICIPANT] setLeaderboardParticipants called.");
+          
+          const newParticipantCount = updatedParticipants.length;
+          console.log("[DEL_PARTICIPANT] New participant count:", newParticipantCount);
+  
+          return {
+            ...prevRace,
+            participants: updatedParticipants,
+            participantCount: newParticipantCount,
+          };
+        });
+        console.log("[DEL_PARTICIPANT] setRace called.");
+      } else {
+        const errorData = await response.json().catch(() => ({ message: `Failed to remove participant. Status: ${response.status}` }));
+        console.error(`[DEL_PARTICIPANT] FETCH FAILED (else block). Status: ${response.status}, Error Data:`, errorData);
+        toast({
+          title: "Removal Failed",
+          description: errorData.message || `Could not remove participant. Server responded with status ${response.status}.`,
+          variant: "destructive",
+        });
+      }
+    } catch (err: any) {
+      console.error("[DEL_PARTICIPANT] CATCH block error:", err);
+      toast({
+        title: "Error Removing Participant",
+        description: err.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    }
+    console.log(`[DEL_PARTICIPANT] END - ID: ${participantId}, Timestamp: ${new Date().toISOString()}`);
+  };
  
   const formatTime = (seconds?: number): string => {
     if (seconds === undefined || seconds === null || isNaN(seconds)) return "-";
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
+    return `${mins}m ${secs.toString().padStart(2, "0")}s`;
   };
 
   const formatDate = (dateString?: string): string => {
-    if (!dateString) {
-      return "N/A";
-    }
+    if (!dateString) return "N/A";
     try {
       const date = parseISO(dateString);
-      if (!isValid(date)) {
-        return "Invalid Date";
-      }
-      return format(date, "MMM d, yyyy");
-    } catch (e) {
-      return "Date Error";
-    }
+      return isValid(date) ? format(date, "MMM d, yyyy h:mm a") : "Invalid Date";
+    } catch (e) { return "Date Error"; }
   };
 
   const getRaceStatus = (startDate?: string, endDate?: string): "not_started" | "ongoing" | "finished" => {
-    if (!startDate || !endDate) return "not_started"; // Default if dates are missing
+    if (!startDate || !endDate) return "not_started";
     const now = new Date();
     const start = parseISO(startDate);
     const end = parseISO(endDate);
-
-    if (!isValid(start) || !isValid(end)) return "not_started"; // Invalid dates
-
+    if (!isValid(start) || !isValid(end)) return "not_started";
     if (now < start) return "not_started";
-    if (now >= start && now <= end) return "ongoing";
+    if (now <= end) return "ongoing"; // now >= start is implied by previous check
     return "finished";
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: "not_started" | "ongoing" | "finished") => {
     if (status === "not_started") return <Badge variant="secondary">Not Started</Badge>;
-    if (status === "ongoing") return <Badge className="bg-green-500 text-white hover:bg-green-600">Submissions Open</Badge>;
+    if (status === "ongoing") return <Badge className="bg-green-500 text-white hover:bg-green-600">Ongoing</Badge>;
     if (status === "finished") return <Badge variant="outline" className="bg-gray-500 text-white">Finished</Badge>;
-    return <Badge variant="secondary">{status}</Badge>;
+    return null; // Should not happen
   };
 
-  const isOrganizer = race?.organiser?.stravaId?.toString() === currentUser?.stravaId;
   const currentUserParticipant = leaderboardParticipants.find(p => p.user.stravaId.toString() === currentUser?.stravaId);
   const hasSubmitted = currentUserParticipant?.submittedRide || false;
 
-
-  if (isLoading && !race) {
+  if (isAuthLoading || (isLoading && !race)) { // Show loading if auth is loading OR race data is loading and not yet available
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <div className="text-center">
           <Loader2 className="animate-spin h-12 w-12 text-primary mx-auto" />
-          <p className="mt-4 text-muted-foreground">Loading race details...</p>
+          <p className="mt-4 text-muted-foreground">Loading details...</p>
         </div>
       </div>
     );
@@ -330,32 +417,25 @@ const RaceDetail: React.FC = () => {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle className="flex items-center text-destructive">
-              <AlertCircle className="mr-2" size={20} />
-              Error
-            </CardTitle>
-          </CardHeader>
-          <CardContent><p>{error}</p></CardContent>
-          <CardFooter>
+      <div className="container mx-auto p-4 flex flex-col items-center justify-center min-h-screen">
+        <AlertTriangle className="h-16 w-16 text-red-500 mb-4" />
+        <h2 className="text-2xl font-semibold mb-2">Error Loading Race</h2>
+        <p className="text-red-600 mb-6 text-center">{error}</p>
+        <div className="flex gap-2">
             <Button onClick={() => fetchRaceDetails()} className="mr-2">Try Again</Button>
             <Button variant="outline" onClick={() => navigate('/')}>Go Home</Button>
-          </CardFooter>
-        </Card>
+        </div>
       </div>
     );
   }
 
   if (!race) {
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <Card className="w-full max-w-md">
-          <CardHeader><CardTitle>Race Not Found</CardTitle></CardHeader>
-          <CardContent><p>The race (ID: {raceId}) might not exist or you may not have permission.</p></CardContent>
-          <CardFooter><Button onClick={() => navigate('/')}>Go Home</Button></CardFooter>
-        </Card>
+      <div className="container mx-auto p-4 flex flex-col items-center justify-center min-h-screen">
+         <AlertCircle className="h-16 w-16 text-yellow-500 mb-4" />
+        <CardTitle className="text-2xl mb-2">Race Not Found</CardTitle>
+        <CardDescription className="mb-6">The race you are looking for (ID: {raceId}) might not exist or you may not have permission to view it.</CardDescription>
+        <Button onClick={() => navigate('/')}>Go Home</Button>
       </div>
     );
   }
@@ -364,84 +444,78 @@ const RaceDetail: React.FC = () => {
 
   return (
     <div className="container mx-auto py-6 px-4 md:px-6 bg-background">
-      {/* Race Header */}
       <div className="mb-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold">{race.raceName}</h1>
-            <div className="flex items-center mt-2 text-muted-foreground">
+            <h1 className="text-2xl md:text-3xl font-bold mb-1">{race.raceName}</h1>
+            <div className="flex items-center text-muted-foreground text-sm">
               <Avatar className="h-6 w-6 mr-2">
-                <AvatarImage
-                  src={race.organiser.userStravaPic}
-                  alt={race.organiser.userStravaFirstName || race.organiser.stravaId.toString()}
-                />
-                <AvatarFallback>{(race.organiser.userStravaFirstName || 'U')[0]}</AvatarFallback>
+                <AvatarImage src={race.organiser.userStravaPic || undefined} alt={race.organiser.displayName || 'Org'} />
+                <AvatarFallback>{(race.organiser.displayName || 'O')[0]}</AvatarFallback>
               </Avatar>
-              <span>
-                Organized by {race.organiser.userStravaFirstName || race.organiser.displayName || `User ${race.organiser.stravaId}`}
-              </span>
+              <span>Organized by {race.organiser.displayName || `User ${race.organiser.stravaId}`}</span>
+              {race.isPrivate && <Badge variant="outline" className="ml-2 text-xs">Private</Badge>}
             </div>
           </div>
-          <div className="mt-4 md:mt-0 flex flex-col md:items-end">
+          <div className="mt-4 md:mt-0 flex flex-col md:items-end space-y-1">
             <div className="flex items-center">
-              {getStatusBadge(currentStatus)}
-              <span className="ml-2 text-muted-foreground text-sm">
-                {currentStatus === "finished"
-                  ? "Ended"
-                  : currentStatus === "not_started"
-                    ? "Starts"
-                    : "Ends"}{" "}
-                {formatDate(
-                  currentStatus === "not_started" ? race.startDate : race.endDate,
-                )}
-              </span>
+                {getStatusBadge(currentStatus)}
+                <span className="ml-2 text-muted-foreground text-sm">
+                    {formatDate(currentStatus === "not_started" ? race.startDate : race.endDate)}
+                </span>
             </div>
-            <div className="flex items-center mt-1">
-              <Users size={14} className="mr-1 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">
-                {race.participantCount || 0} participant(s)
-              </span>
-            </div>
+             {isOrganizer && (
+              <div className="flex space-x-2 mt-2">
+                <Link to={`/races/edit/${race.id}`}>
+                  <Button variant="outline" size="sm"><Edit3 className="mr-1.5 h-4 w-4" /> Edit</Button>
+                </Link>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm"><Trash2 className="mr-1.5 h-4 w-4" /> Delete Race</Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete Race: {race.raceName}?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This action cannot be undone. All participant data and results will be permanently removed.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleDeleteRace} className="bg-red-600 hover:bg-red-700">
+                        Confirm Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Action Buttons */}
       <div className="flex flex-wrap gap-3 mb-6">
         <Button variant="outline" onClick={() => navigate("/my-races")}>
           Back to My Races
         </Button>
-        {currentStatus === "ongoing" && !hasSubmitted && isAuthenticated && (
-          <Button onClick={() => setSubmitDialogOpen(true)}>
-            Submit Activity
+        {currentStatus === "ongoing" && isAuthenticated && (
+          <Button onClick={handleOpenSubmitRideDialog}>
+            {hasSubmitted ? "Update Submission" : "Submit Activity"}
           </Button>
-        )}
-        {currentStatus === "ongoing" && hasSubmitted && isAuthenticated && (
-          <Button variant="outline" onClick={() => setSubmitDialogOpen(true)}>
-            Update Submission
-          </Button>
-        )}
-         {isOrganizer && (
-            <Button variant="outline" onClick={() => alert("Manage Race Settings - Placeholder")}>
-                <Settings className="mr-2 h-4 w-4" /> Manage Race
-            </Button>
         )}
       </div>
 
-      {/* Main Content Tabs */}
       <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="mb-6">
+        <TabsList className="mb-6 grid w-full grid-cols-2 md:grid-cols-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="segments">Segments</TabsTrigger>
-          <TabsTrigger value="participants">Participants</TabsTrigger>
+          <TabsTrigger value="participants">Participants ({leaderboardParticipants.length})</TabsTrigger>
           <TabsTrigger value="leaderboard">Leaderboard</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Race Details</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Race Details</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               {race.raceInfo && (
                 <div className="flex items-start">
@@ -453,274 +527,165 @@ const RaceDetail: React.FC = () => {
                 </div>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                <div className="flex items-center">
-                  <Calendar className="mr-2 text-muted-foreground" size={18} />
-                  <div>
-                    <p className="text-sm font-medium">Start Date</p>
-                    <p className="text-muted-foreground">
-                      {formatDate(race.startDate)}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center">
-                  <Calendar className="mr-2 text-muted-foreground" size={18} />
-                  <div>
-                    <p className="text-sm font-medium">End Date</p>
-                    <p className="text-muted-foreground">
-                      {formatDate(race.endDate)}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center">
-                  <Trophy className="mr-2 text-muted-foreground" size={18} />
-                  <div>
-                    <p className="text-sm font-medium">Status</p>
-                    {getStatusBadge(currentStatus)}
-                  </div>
-                </div>
-                <div className="flex items-center">
-                  <Users className="mr-2 text-muted-foreground" size={18} />
-                  <div>
-                    <p className="text-sm font-medium">Participants</p>
-                    <p className="text-muted-foreground">
-                      {race.participantCount || 0} cyclist(s)
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center">
-                    <ListChecks className="mr-2 text-muted-foreground" size={18}/>
-                    <div>
-                        <p className="text-sm font-medium">Segments</p>
-                        <p className="text-muted-foreground">{race.segmentIds.length} segment(s)</p>
-                    </div>
-                </div>
-                 <div className="flex items-center">
-                    <Users className="mr-2 text-muted-foreground" size={18}/> {/* Using Users icon for privacy - consider a Lock icon */}
-                    <div>
-                        <p className="text-sm font-medium">Privacy</p>
-                        <p className="text-muted-foreground">{race.isPrivate ? "Private" : "Public"}</p>
-                    </div>
-                </div>
+                <div className="flex items-center"><Calendar className="mr-2 text-muted-foreground" size={18} /><div><p className="text-sm font-medium">Start Date</p><p className="text-muted-foreground">{formatDate(race.startDate)}</p></div></div>
+                <div className="flex items-center"><Calendar className="mr-2 text-muted-foreground" size={18} /><div><p className="text-sm font-medium">End Date</p><p className="text-muted-foreground">{formatDate(race.endDate)}</p></div></div>
+                <div className="flex items-center"><Trophy className="mr-2 text-muted-foreground" size={18} /><div><p className="text-sm font-medium">Status</p>{getStatusBadge(currentStatus)}</div></div>
+                <div className="flex items-center"><Users className="mr-2 text-muted-foreground" size={18} /><div><p className="text-sm font-medium">Participants</p><p className="text-muted-foreground">{race.participantCount || 0}</p></div></div>
+                <div className="flex items-center"><ListChecks className="mr-2 text-muted-foreground" size={18}/><div><p className="text-sm font-medium">Segments</p><p className="text-muted-foreground">{race.segmentIds.length}</p></div></div>
+                <div className="flex items-center"><Users className="mr-2 text-muted-foreground" size={18}/><div><p className="text-sm font-medium">Privacy</p><p className="text-muted-foreground">{race.isPrivate ? "Private" : "Public"}</p></div></div>
               </div>
             </CardContent>
           </Card>
-
-          {currentStatus === "ongoing" && isAuthenticated && (
-            <Card>
-              <CardHeader><CardTitle>Your Submission</CardTitle></CardHeader>
-              <CardContent>
-                {hasSubmitted ? (
-                  <div>
-                    <p>You've submitted your activity (ID: {currentUserParticipant?.submittedActivityId || "N/A"}).</p>
-                    <p>You can update it by clicking the "Update Submission" button.</p>
-                  </div>
-                ) : (
-                  <div className="text-center py-6">
-                    <p className="text-muted-foreground mb-3">No activity submitted yet for this race.</p>
-                    <Button onClick={() => setSubmitDialogOpen(true)}>Submit Strava Activity</Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
         </TabsContent>
 
         <TabsContent value="segments">
           <Card>
-            <CardHeader>
-              <CardTitle>Race Segments</CardTitle>
-              <CardDescription>Complete all listed Strava segments during the race period.</CardDescription>
-            </CardHeader>
+            <CardHeader><CardTitle>Race Segments</CardTitle><CardDescription>Complete these Strava segments during the race.</CardDescription></CardHeader>
             <CardContent>
               {displaySegments.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Segment Name</TableHead>
-                      <TableHead className="text-right">View on Strava</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                <Table><TableHeader><TableRow><TableHead>Segment Name</TableHead><TableHead className="text-right">View</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {displaySegments.map((segment) => (
-                      <TableRow key={segment.id}>
-                        <TableCell className="font-medium">{segment.name}</TableCell>
+                      <TableRow key={segment.id}><TableCell className="font-medium">{segment.name}</TableCell>
                         <TableCell className="text-right">
-                          <a href={segment.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center justify-end">
-                            <span className="mr-1 text-sm">View Segment</span>
-                            <ExternalLink size={14} />
-                          </a>
+                          <Button asChild variant="ghost" size="sm">
+                            <a href={segment.url} target="_blank" rel="noopener noreferrer">
+                              Strava <ExternalLink size={14} className="ml-1"/>
+                            </a>
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <p className="text-muted-foreground p-4 text-center">No segments defined for this race.</p>
-              )}
+                  </TableBody></Table>
+              ) : (<p className="text-muted-foreground p-4 text-center">No segments for this race.</p>)}
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="participants">
           <Card>
-            <CardHeader>
-                <CardTitle>Participants</CardTitle>
-                <CardDescription>{leaderboardParticipants.length} cyclist{leaderboardParticipants.length !== 1 ? 's' : ''} in this race.</CardDescription>
-            </CardHeader>
+            <CardHeader><CardTitle>Participants</CardTitle><CardDescription>{leaderboardParticipants.length} registered.</CardDescription></CardHeader>
             <CardContent>
               {leaderboardParticipants.length > 0 ? (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {leaderboardParticipants.map((participant) => (
-                    <div key={participant.id} className="flex items-center justify-between p-3 border rounded-md">
+                    <div key={participant.id} className="flex items-center justify-between p-3 border rounded-md hover:bg-accent/50 transition-colors">
                       <div className="flex items-center">
                         <Avatar className="h-10 w-10 mr-3">
-                          <AvatarImage src={participant.profileImage} alt={participant.name} />
+                          <AvatarImage src={participant.profileImage || undefined} alt={participant.name} />
                           <AvatarFallback>{participant.name?.charAt(0)?.toUpperCase() || 'P'}</AvatarFallback>
                         </Avatar>
                         <div>
                           <p className="font-medium">{participant.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {participant.submittedRide ? `Submitted (Activity ID: ${participant.submittedActivityId || 'N/A'})` : "No submission yet"}
+                          <p className={`text-xs ${participant.submittedRide ? 'text-green-600' : 'text-muted-foreground'}`}>
+                            {participant.submittedRide ? `Submitted (ID: ${participant.submittedActivityId || 'N/A'})` : "No submission yet"}
                           </p>
                         </div>
                       </div>
-                      {participant.submittedRide && participant.totalTime !== undefined && (
-                        <div className="text-right">
-                          <p className="font-medium">{formatTime(participant.totalTime)}</p>
-                          <p className="text-sm text-muted-foreground">Total Time</p>
-                        </div>
-                      )}
+                       {isOrganizer  && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Remove {participant.name}?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This will remove {participant.name} from the race. This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleDeleteParticipant(participant.id)}
+                                  className="bg-red-600 hover:bg-red-700"
+                                >
+                                  Confirm Remove
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                        {!isOrganizer && participant.submittedRide && participant.totalTime !== undefined && (
+                             <div className="text-right">
+                                <p className="font-semibold text-sm">{formatTime(participant.totalTime)}</p>
+                                <p className="text-xs text-muted-foreground">Total Time</p>
+                            </div>
+                        )}
                     </div>
                   ))}
                 </div>
-              ) : (
-                 <p className="text-muted-foreground p-4 text-center">No participants have joined or been loaded for this race yet.</p>
-              )}
+              ) : ( <p className="text-muted-foreground p-4 text-center">No participants yet.</p> )}
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="leaderboard">
           <Card>
-            <CardHeader>
-              <CardTitle>Leaderboard</CardTitle>
-              <CardDescription>
-                {currentStatus === "finished" ? "Final results" : "Current standings (based on submitted valid activities)"}
-              </CardDescription>
-            </CardHeader>
+            <CardHeader><CardTitle>Leaderboard</CardTitle><CardDescription>Standings based on submitted activities.</CardDescription></CardHeader>
             <CardContent>
               {leaderboardParticipants.filter((p) => p.submittedRide && p.totalTime !== undefined).length > 0 ? (
                 <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Rank</TableHead>
-                      <TableHead>Rider</TableHead>
-                      {displaySegments.map(segment => (
-                          <TableHead key={segment.id} className="text-xs whitespace-nowrap">
-                            {segment.name.length > 25 ? segment.name.substring(0,22) + "..." : segment.name}
-                          </TableHead>
-                      ))}
-                      <TableHead>Total Time</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                  <TableHeader><TableRow><TableHead>Rank</TableHead><TableHead>Rider</TableHead>
+                    {displaySegments.map(segment => (<TableHead key={segment.id} className="text-xs whitespace-nowrap hidden md:table-cell">{segment.name.length > 20 ? segment.name.substring(0,17) + "..." : segment.name}</TableHead>))}
+                    <TableHead className="text-right">Total Time</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {leaderboardParticipants
                       .filter((p) => p.submittedRide && p.totalTime !== undefined)
                       .sort((a, b) => (a.totalTime || Infinity) - (b.totalTime || Infinity))
                       .map((participant, index) => (
                         <TableRow key={participant.id}>
-                          <TableCell>{index + 1}</TableCell>
+                          <TableCell className="font-semibold">{index + 1}</TableCell>
                           <TableCell>
-                            <div className="flex items-center">
-                              <Avatar className="h-6 w-6 mr-2">
-                                <AvatarImage src={participant.profileImage} alt={participant.name} />
-                                <AvatarFallback>{participant.name?.charAt(0)?.toUpperCase() || 'P'}</AvatarFallback>
-                              </Avatar>
-                              <span className="whitespace-nowrap">{participant.name}</span>
-                            </div>
-                          </TableCell>
-                           {displaySegments.map(segment => (
-                              <TableCell key={`${participant.id}-${segment.id}`}>
-                                {formatTime(participant.segmentTimes?.[segment.id.toString()])}
-                              </TableCell>
-                          ))}
-                          <TableCell className="font-medium">
-                            {formatTime(participant.totalTime)}
-                          </TableCell>
+                            <div className="flex items-center"><Avatar className="h-6 w-6 mr-2">
+                                <AvatarImage src={participant.profileImage || undefined} alt={participant.name} />
+                                <AvatarFallback>{participant.name?.charAt(0)?.toUpperCase() || 'P'}</AvatarFallback></Avatar>
+                              <span className="whitespace-nowrap">{participant.name}</span></div></TableCell>
+                           {displaySegments.map(segment => (<TableCell key={`${participant.id}-${segment.id}`} className="hidden md:table-cell">{formatTime(participant.segmentTimes?.[segment.id.toString()])}</TableCell>))}
+                          <TableCell className="font-medium text-right">{formatTime(participant.totalTime)}</TableCell>
                         </TableRow>
                       ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <div className="text-center py-10">
-                  <p className="text-muted-foreground mb-4">
-                    No activities submitted yet. Leaderboard will populate once submissions are in.
-                  </p>
-                  {currentStatus === "ongoing" && !hasSubmitted && isAuthenticated && (
-                    <Button onClick={() => setSubmitDialogOpen(true)}>Submit Your Activity</Button>
-                  )}
-                </div>
-              )}
+                  </TableBody></Table>
+              ) : (<div className="text-center py-10"><p className="text-muted-foreground mb-4">No results yet. Leaderboard populates after submissions.</p>
+                  {currentStatus === "ongoing" && !hasSubmitted && isAuthenticated && (<Button onClick={handleOpenSubmitRideDialog}>Submit Your Activity</Button>)}</div>)}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
-      {/* Submit Activity Dialog */}
       <Dialog open={submitDialogOpen} onOpenChange={setSubmitDialogOpen}>
-        <DialogContent className="sm:max-w-lg"> {/* Increased width slightly */}
-          <DialogHeader>
-            <DialogTitle>Submit Strava Activity</DialogTitle>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle>Submit Strava Activity</DialogTitle>
             <DialogDescription>
-              Select a Strava 'Ride' activity completed between {race?.startDate ? formatDate(race.startDate) : 'N/A'} and {race?.endDate ? formatDate(race.endDate) : 'N/A'}.
-              <br/> Segment times will be automatically extracted.
-            </DialogDescription>
-          </DialogHeader>
+              Select an activity from {race?.startDate ? formatDate(race.startDate) : 'N/A'} to {race?.endDate ? formatDate(race.endDate) : 'N/A'}.
+            </DialogDescription></DialogHeader>
           <div className="py-4 space-y-4">
-            {isFetchingActivities && (
-              <div className="flex items-center justify-center p-6">
-                <Loader2 className="animate-spin h-8 w-8 text-primary" />
-                <p className="ml-2">Fetching your recent Strava activities...</p>
-              </div>
-            )}
-            {!isFetchingActivities && activityFetchError && (
-              <p className="text-center text-destructive px-2 py-4 border border-destructive/50 rounded-md bg-destructive/10">{activityFetchError}</p>
-            )}
-            {!isFetchingActivities && !activityFetchError && stravaActivities.length === 0 && (
-              <p className="text-center text-muted-foreground p-6">
-                No recent Strava 'Ride' activities found within the race period. Ensure your activity is set to 'Ride' type on Strava.
-              </p>
-            )}
+            {isFetchingActivities && (<div className="flex items-center justify-center p-6"><Loader2 className="animate-spin h-8 w-8 text-primary" /><p className="ml-2">Fetching activities...</p></div>)}
+            {!isFetchingActivities && activityFetchError && (<p className="text-center text-destructive p-2 border border-destructive/50 rounded-md bg-destructive/10">{activityFetchError}</p>)}
+            {!isFetchingActivities && !activityFetchError && stravaActivities.length === 0 && (<p className="text-center text-muted-foreground p-6">No eligible Strava activities found.</p>)}
+            
             {!isFetchingActivities && stravaActivities.length > 0 && (
-              <div className="space-y-3 max-h-80 overflow-y-auto border rounded-md p-1"> {/* Increased max-h and added padding */}
-                {stravaActivities.map((activity) => (
-                  <div
-                    key={activity.id}
-                    className={`flex items-center justify-between p-3 border rounded-md cursor-pointer hover:bg-accent ${isSubmittingActivity ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    onClick={() => !isSubmittingActivity && handleActivitySubmit(activity.id)}
-                    role="button"
-                    tabIndex={isSubmittingActivity ? -1 : 0}
-                    onKeyDown={(e) => e.key === 'Enter' && !isSubmittingActivity && handleActivitySubmit(activity.id)}
-                  >
-                    <div>
-                      <p className="font-medium">{activity.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {format(parseISO(activity.startDateLocal), "MMM d, yyyy h:mm a")} • {(activity.distance / 1000).toFixed(1)} km • {formatTime(activity.elapsedTime)}
-                      </p>
-                    </div>
-                    {!isSubmittingActivity && <ChevronRight size={18} className="text-muted-foreground" />}
-                    {isSubmittingActivity && <Loader2 size={18} className="text-muted-foreground animate-spin" />}
-                  </div>
-                ))}
-              </div>
+               <Select onValueChange={setSelectedActivity} value={selectedActivity || ""}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose an activity to submit" />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  {stravaActivities.map((activity) => (
+                    <SelectItem key={activity.id} value={activity.id.toString()}>
+                      {activity.name} ({format(parseISO(activity.startDateLocal), "MMM d, h:mm a")}, {(activity.distance / 1000).toFixed(1)}km)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
-            {activitySubmissionError && (
-                <p className="text-sm text-destructive pt-2 text-center">{activitySubmissionError}</p>
-            )}
+             {activitySubmissionError && (<p className="text-sm text-destructive pt-2 text-center">{activitySubmissionError}</p>)}
           </div>
-          <DialogFooter className="sm:justify-start">
-            <Button type="button" variant="outline" onClick={() => setSubmitDialogOpen(false)} disabled={isSubmittingActivity}>
-              Cancel
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => { setSubmitDialogOpen(false); setSelectedActivity(null); }} disabled={isSubmittingActivity}>Cancel</Button>
+            <Button type="button" onClick={handleActivitySubmit} disabled={!selectedActivity || isSubmittingActivity || isFetchingActivities}>
+              {isSubmittingActivity ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Submitting...</> : 'Submit Activity'}
             </Button>
           </DialogFooter>
         </DialogContent>
