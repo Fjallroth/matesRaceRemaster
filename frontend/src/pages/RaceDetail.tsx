@@ -1,8 +1,5 @@
-// frontend/src/pages/RaceDetail.tsx
-// (Assuming this is the version from the latest content_fetcher output)
-
 import React, { useState, useEffect, useCallback } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom"; // Added Link
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
@@ -30,7 +27,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogClose // Added DialogClose
+  DialogClose
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -54,16 +51,16 @@ import {
   Settings,
   Info,
   ListChecks,
-  Trash2, // Added Trash2
-  Edit3,  // Added Edit3
-  Crown,  // Added Crown
-  AlertTriangle // Added AlertTriangle
+  Trash2,
+  Edit3,
+  Crown,
+  AlertTriangle
 } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
 import { Race, RaceOrganiser, RaceParticipant, StravaActivity, ParticipantSegmentResult } from "@/types/raceTypes";
 import { useAuth } from "@/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Added Select for activity submission (though it was in your old code)
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 
 interface DisplayParticipantFromRace extends RaceParticipant {
@@ -85,13 +82,13 @@ interface DisplaySegment {
 const RaceDetail: React.FC = () => {
   const { raceId } = useParams<{ raceId: string }>();
   const navigate = useNavigate();
-  const { user: currentUser, isAuthenticated, isLoading: isAuthLoading } = useAuth(); // Capture isLoading as isAuthLoading
+  const { user: currentUser, isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { toast } = useToast();
 
   const [race, setRace] = useState<Race | null>(null);
   const [displaySegments, setDisplaySegments] = useState<DisplaySegment[]>([]);
   const [leaderboardParticipants, setLeaderboardParticipants] = useState<DisplayParticipantFromRace[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true); // This is for race data loading
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const [submitDialogOpen, setSubmitDialogOpen] = useState<boolean>(false);
@@ -100,41 +97,43 @@ const RaceDetail: React.FC = () => {
   const [activityFetchError, setActivityFetchError] = useState<string | null>(null);
   const [isSubmittingActivity, setIsSubmittingActivity] = useState<boolean>(false);
   const [activitySubmissionError, setActivitySubmissionError] = useState<string | null>(null);
-  const [selectedActivity, setSelectedActivity] = useState<string | null>(null); // For activity dialog
+  const [selectedActivity, setSelectedActivity] = useState<string | null>(null);
 
   const isOrganizer = race?.organiser?.stravaId?.toString() === currentUser?.stravaId;
 
+  // mapParticipantsForDisplay definition
+  const mapParticipantsForDisplay = useCallback((participants?: RaceParticipant[], segmentIdsParam?: number[]): DisplayParticipantFromRace[] => {
+      if (!participants) return [];
+      return participants.map((p) => {
+        const user = p.user;
+        let totalTimeSecs: number | undefined = undefined;
+        const segTimes: Record<string, number> = {};
 
-  const mapParticipantsForDisplay = useCallback((participants?: RaceParticipant[]): DisplayParticipantFromRace[] => {
-    if (!participants) return [];
-    return participants.map((p) => {
-      const user = p.user;
-      let totalTimeSecs: number | undefined = undefined;
-      const segTimes: Record<string, number> = {};
-
-      if (p.segmentResults && p.segmentResults.length > 0) {
-        totalTimeSecs = 0;
-        p.segmentResults.forEach(sr => {
-          if (sr.segmentId && sr.elapsedTimeSeconds !== undefined && sr.elapsedTimeSeconds !== null) {
-            segTimes[sr.segmentId.toString()] = sr.elapsedTimeSeconds;
-            totalTimeSecs! += sr.elapsedTimeSeconds; // Use non-null assertion if totalTimeSecs is initialized
+        if (p.segmentResults && p.segmentResults.length > 0) {
+          totalTimeSecs = 0;
+          p.segmentResults.forEach(sr => {
+            if (sr.segmentId && sr.elapsedTimeSeconds !== undefined && sr.elapsedTimeSeconds !== null) {
+              segTimes[sr.segmentId.toString()] = sr.elapsedTimeSeconds;
+              totalTimeSecs! += sr.elapsedTimeSeconds;
+            }
+          });
+          
+          const currentRaceSegmentIds = segmentIdsParam || [];
+          if (totalTimeSecs !== undefined && Object.keys(segTimes).length === 0 && currentRaceSegmentIds.length > 0) {
+              totalTimeSecs = undefined;
+          } else if (totalTimeSecs === 0 && currentRaceSegmentIds.length > 0 && Object.keys(segTimes).length === 0) {
+              totalTimeSecs = undefined;
           }
-        });
-        if (totalTimeSecs !== undefined && Object.keys(segTimes).length === 0 && (race?.segmentIds?.length || 0) > 0) {
-            totalTimeSecs = undefined;
-        } else if (totalTimeSecs === 0 && (race?.segmentIds?.length || 0) > 0 && Object.keys(segTimes).length === 0) {
-            totalTimeSecs = undefined;
         }
-      }
-      return {
-        ...p,
-        name: `${user.userStravaFirstName || ''} ${user.userStravaLastName || ''}`.trim() || user.displayName || `User ${user.stravaId}`,
-        profileImage: user.userStravaPic,
-        totalTime: totalTimeSecs,
-        segmentTimes: segTimes,
-      };
-    });
-  }, [race?.segmentIds]);
+        return {
+          ...p,
+          name: `${user.userStravaFirstName || ''} ${user.userStravaLastName || ''}`.trim() || user.displayName || `User ${user.stravaId}`,
+          profileImage: user.userStravaPic,
+          totalTime: totalTimeSecs,
+          segmentTimes: segTimes,
+        };
+      });
+    }, []); // Now mapParticipantsForDisplay is stable
 
   const fetchRaceDetails = useCallback(async () => {
     if (!raceId) {
@@ -142,6 +141,15 @@ const RaceDetail: React.FC = () => {
       setIsLoading(false);
       return;
     }
+    // Only proceed if authenticated and auth check is complete.
+    if (!isAuthenticated || isAuthLoading) {
+      if (!isAuthLoading && !isAuthenticated) {
+        navigate('/login');
+      }
+      return;
+    }
+
+    console.log(`Workspaceing race details for raceId: ${raceId}`);
     setIsLoading(true);
     setError(null);
     try {
@@ -150,7 +158,7 @@ const RaceDetail: React.FC = () => {
           credentials: 'include',
       });
       if (!response.ok) {
-        if (response.status === 401 && !isAuthLoading) navigate('/login'); // Only redirect if not in initial auth loading phase
+        if (response.status === 401 && !isAuthLoading) navigate('/login');
         if (response.status === 404) throw new Error("Race not found.");
         const errorData = await response.json().catch(() => ({ message: `Failed to fetch race details: ${response.statusText}` }));
         throw new Error(errorData.message || `Failed to fetch race details: ${response.statusText}`);
@@ -175,25 +183,30 @@ const RaceDetail: React.FC = () => {
       });
       const detailedSegments = await Promise.all(segmentDetailsPromises);
       setDisplaySegments(detailedSegments);
-      setLeaderboardParticipants(mapParticipantsForDisplay(data.participants));
+
+      setLeaderboardParticipants(mapParticipantsForDisplay(data.participants, data.segmentIds));
+
     } catch (err: any) {
       setError(err.message);
       console.error("Error fetching race details:", err);
     } finally {
       setIsLoading(false);
     }
-  }, [raceId, navigate, mapParticipantsForDisplay, isAuthLoading]);
+  }, [raceId, navigate, isAuthenticated, isAuthLoading, mapParticipantsForDisplay]);
 
   useEffect(() => {
-    // Wait for auth check to complete before fetching race details or redirecting
     if (!isAuthLoading) {
       if (isAuthenticated) {
-          fetchRaceDetails();
+        console.log("Authenticated, calling fetchRaceDetails");
+        fetchRaceDetails();
       } else {
-          navigate('/login');
+        console.log("Not authenticated, navigating to login");
+        navigate('/login');
       }
+    } else {
+      console.log("Auth is loading, waiting...");
     }
-  }, [isAuthenticated, isAuthLoading, fetchRaceDetails, navigate]);
+  }, [isAuthenticated, isAuthLoading, raceId, navigate, fetchRaceDetails]);
 
   const fetchUserStravaActivities = async () => {
     if (!raceId || !race) {
@@ -224,8 +237,8 @@ const RaceDetail: React.FC = () => {
     }
   };
 
-  const handleActivitySubmit = async () => { // Renamed from your version to be less generic
-    if (!raceId || !selectedActivity) return; // Use selectedActivity from state
+  const handleActivitySubmit = async () => {
+    if (!raceId || !selectedActivity) return;
     setIsSubmittingActivity(true);
     setActivitySubmissionError(null);
     try {
@@ -236,7 +249,7 @@ const RaceDetail: React.FC = () => {
                 'Accept': 'application/json',
             },
             credentials: 'include',
-            body: JSON.stringify({ activityId: Number(selectedActivity) }), // Ensure activityId is a number
+            body: JSON.stringify({ activityId: Number(selectedActivity) }),
         });
 
         if (!response.ok) {
@@ -246,7 +259,7 @@ const RaceDetail: React.FC = () => {
         toast({ title: "Success!", description: "Your activity has been submitted." });
         setSubmitDialogOpen(false);
         setSelectedActivity(null);
-        fetchRaceDetails();
+        fetchRaceDetails(); // Re-fetch race details to update participant list/status
     } catch (err: any) {
         console.error("Error submitting activity:", err);
         setActivitySubmissionError(err.message || "Could not submit activity.");
@@ -293,7 +306,7 @@ const RaceDetail: React.FC = () => {
 
   const handleDeleteParticipant = async (participantId: number) => {
     console.log(`[DEL_PARTICIPANT] START - ID: ${participantId}, Timestamp: ${new Date().toISOString()}`);
-    console.log("[DEL_PARTICIPANT] Current 'race' state at START:", JSON.stringify(race)); // Stringify to capture snapshot
+    console.log("[DEL_PARTICIPANT] Current 'race' state at START:", JSON.stringify(race));
     console.log("[DEL_PARTICIPANT] 'isOrganizer' at START:", isOrganizer);
     console.log("[DEL_PARTICIPANT] 'currentUser' at START:", JSON.stringify(currentUser));
   
@@ -335,7 +348,8 @@ const RaceDetail: React.FC = () => {
           const updatedParticipants = prevRace.participants?.filter(p => p.id !== participantId) || [];
           console.log("[DEL_PARTICIPANT] updatedParticipants after filter:", JSON.stringify(updatedParticipants));
           
-          setLeaderboardParticipants(mapParticipantsForDisplay(updatedParticipants));
+          // Use the stable mapParticipantsForDisplay with the updated participants and existing segment IDs from prevRace
+          setLeaderboardParticipants(mapParticipantsForDisplay(updatedParticipants, prevRace.segmentIds));
           console.log("[DEL_PARTICIPANT] setLeaderboardParticipants called.");
           
           const newParticipantCount = updatedParticipants.length;
@@ -390,7 +404,7 @@ const RaceDetail: React.FC = () => {
     const end = parseISO(endDate);
     if (!isValid(start) || !isValid(end)) return "not_started";
     if (now < start) return "not_started";
-    if (now <= end) return "ongoing"; // now >= start is implied by previous check
+    if (now <= end) return "ongoing";
     return "finished";
   };
 
@@ -398,13 +412,13 @@ const RaceDetail: React.FC = () => {
     if (status === "not_started") return <Badge variant="secondary">Not Started</Badge>;
     if (status === "ongoing") return <Badge className="bg-green-500 text-white hover:bg-green-600">Ongoing</Badge>;
     if (status === "finished") return <Badge variant="outline" className="bg-gray-500 text-white">Finished</Badge>;
-    return null; // Should not happen
+    return null;
   };
 
   const currentUserParticipant = leaderboardParticipants.find(p => p.user.stravaId.toString() === currentUser?.stravaId);
   const hasSubmitted = currentUserParticipant?.submittedRide || false;
 
-  if (isAuthLoading || (isLoading && !race)) { // Show loading if auth is loading OR race data is loading and not yet available
+  if (isAuthLoading || (isLoading && !race)) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <div className="text-center">

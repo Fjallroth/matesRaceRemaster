@@ -1,6 +1,7 @@
 // backend/src/main/java/com/matesRace/backend/controller/RaceApiController.java
 package com.matesRace.backend.controller;
-
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import com.matesRace.backend.dto.ParticipantSegmentResultDTO;
 import com.matesRace.backend.dto.StravaActivityDTO;
 import com.matesRace.backend.dto.SubmitActivityRequestDTO;
@@ -27,7 +28,9 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
-
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import org.hibernate.Hibernate;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
@@ -52,6 +55,9 @@ public class RaceApiController {
 
     @Autowired
     private ParticipantRepository participantRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @PostMapping
     @Transactional
@@ -392,7 +398,7 @@ public class RaceApiController {
             logger.warn("Attempt to delete non-existent participant ID: {} from race {}", participantId, raceId);
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Participant not found.");
         }
-        Participant participantToDelete = participantOpt.get();
+        Participant participantToDelete = participantOpt.get(); // participantToDelete is managed
 
         if (participantToDelete.getRace() == null || !participantToDelete.getRace().getId().equals(raceId)) {
             logger.warn("Participant {} (User Strava ID: {}) is not part of race {}. Actual race ID: {}",
@@ -420,9 +426,26 @@ public class RaceApiController {
         }
 
         try {
-            participantRepository.delete(participantToDelete);
-            logger.info("Participant ID: {} (User Strava ID: {}) deleted from race ID: {} by requester (Strava ID: {}). " +
-                            "Requester was organiser: {}. Action was self-deletion: {}.",
+            logger.debug("Attempting to delete participant: ID {} from race ID: {}",
+                    participantToDelete.getId(), raceId);
+            if (participantToDelete.getSegmentResults() != null && Hibernate.isInitialized(participantToDelete.getSegmentResults())) {
+                logger.debug("Participant has {} segment results.", participantToDelete.getSegmentResults().size());
+            }
+            logger.debug("Is participant managed by session before delete? {}", entityManager.contains(participantToDelete));
+
+            if (race.getParticipants() != null && Hibernate.isInitialized(race.getParticipants())) {
+                boolean removedFromCollection = race.getParticipants().remove(participantToDelete);
+               logger.debug("Participant removed from race's in-memory collection: {}", removedFromCollection);
+            } else {
+                logger.warn("Race.participants collection was null or not initialized, could not remove participant from it in memory.");
+            }
+
+            participantRepository.delete(participantToDelete); // Mark for deletion in Hibernate session
+
+            logger.debug("Calling entityManager.flush() after marking for delete and removing from parent collection.");
+            entityManager.flush(); // Explicit flush to execute SQL or reveal errors
+
+            logger.info("Participant ID: {} (User Strava ID: {}) processed for deletion (controller logic) from race ID: {} by requester (Strava ID: {}). Requester was organiser: {}. Action was self-deletion: {}.",
                     participantId,
                     participantToDelete.getUser() != null ? participantToDelete.getUser().getStravaId() : "N/A",
                     raceId,
@@ -431,14 +454,12 @@ public class RaceApiController {
                     isDeletingSelf);
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
-            logger.error("Error deleting participant {} (User Strava ID: {}) from race {}: {}",
+            logger.error("Error during participant deletion operation for participant {} in race {}: {}",
                     participantId,
-                    participantToDelete.getUser() != null ? participantToDelete.getUser().getStravaId() : "N/A",
-                    raceId, e.getMessage(), e);
+                    raceId, e.getMessage(), e); // Log full exception
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to delete participant due to a server error.");
         }
     }
-
 
     @GetMapping("/{raceId}/strava-activities")
     @Transactional(readOnly = true)
