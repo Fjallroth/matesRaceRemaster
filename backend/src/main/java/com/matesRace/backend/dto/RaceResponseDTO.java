@@ -13,12 +13,13 @@ public class RaceResponseDTO {
     private Long id;
     private String raceName;
     private String raceInfo;
-    private String startDate; // ISO 8601 string
-    private String endDate;   // ISO 8601 string
+    private String startDate;
+    private String endDate;
     private List<Long> segmentIds;
     private UserSummaryDTO organiser;
     private boolean isPrivate;
-    // private String password; // Generally not sent unless for specific authorized actions
+    private boolean hideLeaderboardUntilFinish;
+    private boolean useSexCategories;
     private List<ParticipantSummaryDTO> participants; // Can be null for list views
     private int participantCount;
 }

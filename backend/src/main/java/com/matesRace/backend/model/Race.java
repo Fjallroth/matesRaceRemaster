@@ -16,7 +16,7 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "races") // Keep this explicit name
+@Table(name = "races")
 public class Race {
 
     @Id
@@ -25,9 +25,9 @@ public class Race {
 
     @Column(nullable = false)
     private String raceName;
-    
-    @Column(columnDefinition = "TEXT") // Explicitly map to TEXT type in PostgreSQL
-    private String raceInfo; // This field will store the description
+
+    @Column(columnDefinition = "TEXT")
+    private String raceInfo;
 
     @Column(nullable = false)
     private Instant startDate;
@@ -44,11 +44,17 @@ public class Race {
     @JoinColumn(name = "organiser_strava_id", referencedColumnName = "strava_Id", nullable = false)
     private User organiser;
 
-    @Column(name = "password", nullable = true)
+    @Column(name = "password", nullable = true) // Will be required if isPrivate is true
     private String password;
 
-    @Column(nullable = false)
-    private boolean isPrivate = false;
+    @Column(nullable = false, columnDefinition = "BOOLEAN DEFAULT TRUE") // Default to true
+    private boolean isPrivate = true; // Now defaults to true
+
+    @Column(nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
+    private boolean hideLeaderboardUntilFinish = false;
+
+    @Column(nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE") // New field
+    private boolean useSexCategories = false;
 
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(

@@ -4,15 +4,15 @@ package com.matesRace.backend.dto;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import java.util.List; // <-- Import List
+import java.util.List;
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class ParticipantSummaryDTO {
-    private Long id; // Participant record ID
+    private Long id;
     private UserSummaryDTO user;
     private boolean submittedRide;
-    private Long submittedActivityId; // Optional: can be null
-    private List<ParticipantSegmentResultDTO> segmentResults; // <-- ADDED for leaderboard
+    private Long submittedActivityId;
+    private List<ParticipantSegmentResultDTO> segmentResults;
 }

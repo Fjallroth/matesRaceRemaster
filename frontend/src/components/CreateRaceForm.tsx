@@ -8,10 +8,11 @@ import {
   Calendar as CalendarIcon,
   Plus,
   X,
-  Lock,
-  Globe,
+  // Lock, // No longer needed for privacy toggle
+  // Globe, // No longer needed for privacy toggle
   Loader2,
   AlertTriangle,
+  Users // For sex categories
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -32,14 +33,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Checkbox } from "@/components/ui/checkbox";
+// import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"; // Removed
+// import { Checkbox } from "@/components/ui/checkbox"; // Keep if used for sex categories, or use Switch
+import { Switch } from "@/components/ui/switch";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-// Define the base object schema first
 const formObjectSchema = z.object({
     raceName: z.string().min(3, {
       message: "Race name must be at least 3 characters.",
@@ -48,52 +49,28 @@ const formObjectSchema = z.object({
     startDate: z.date({
       required_error: "Start date is required.",
     }),
-    endDate: z
-      .date({
+    endDate: z.date({
         required_error: "End date is required.",
-      }),
-      // REMOVED: .refine((date) => date > new Date(), {
-      //   message: "End date must be in the future.",
-      // }),
+    }),
     segments: z.array(z.string()).min(1, {
       message: "At least one segment is required.",
     }),
-    privacy: z.enum(["public", "private"]),
-    password: z.string().optional(),
-    categories: z.object({
-      useAgeCategories: z.boolean().default(false),
-      useSexCategories: z.boolean().default(false),
-      ageRanges: z
-        .array(
-          z.object({
-            min: z.number().min(0).max(100),
-            max: z.number().min(0).max(100),
-            label: z.string(),
-          }),
-        )
-        .optional(),
-    }),
+    // privacy: z.enum(["public", "private"]), // Removed, forced to private
+    password: z.string().min(4, { message: "Password is required and must be at least 4 characters." }), // Always required
+    hideLeaderboardUntilFinish: z.boolean().default(false),
+    useSexCategories: z.boolean().default(false), // New field for sex categories
+    // categories object removed as age categories are gone for now
   });
 
-// Apply schema-level refinements using .superRefine or .refine on the object
 const formSchema = formObjectSchema.superRefine((data, ctx) => {
-    // 1. End date must be after start date
     if (data.endDate <= data.startDate) {
         ctx.addIssue({
             code: z.ZodIssueCode.invalid_date,
             message: "End date must be after start date.",
-            path: ["endDate"], // Attach error to endDate field
+            path: ["endDate"],
         });
     }
-
-    // 2. Password required for private races
-    if (data.privacy === "private" && (!data.password || data.password.length < 4)) {
-         ctx.addIssue({
-            code: z.ZodIssueCode.custom, 
-            message: "Password is required for private races and must be at least 4 characters.",
-            path: ["password"], 
-        });
-    }
+    // Password validation is now at field level if always required
 });
 
 
@@ -111,30 +88,19 @@ export default function CreateRaceForm() {
     defaultValues: {
       raceName: "",
       description: "",
-      // Default start date can remain today, user can change it to past.
-      startDate: new Date(), 
+      startDate: new Date(),
       endDate: new Date(new Date().setDate(new Date().getDate() + 7)),
       segments: [],
-      privacy: "public",
+      // privacy: "private", // No longer needed in form state, forced in payload
       password: "",
-      categories: {
-        useAgeCategories: false,
-        useSexCategories: false,
-        ageRanges: [
-          { min: 18, max: 29, label: "18-29" },
-          { min: 30, max: 39, label: "30-39" },
-          { min: 40, max: 49, label: "40-49" },
-          { min: 50, max: 59, label: "50-59" },
-          { min: 60, max: 100, label: "60+" },
-        ],
-      },
+      hideLeaderboardUntilFinish: false,
+      useSexCategories: false, // Default for sex categories
     },
   });
 
-  const segments = form.watch("segments");
-  const privacy = form.watch("privacy");
+  const segmentsWatch = form.watch("segments");
 
-  const handleAddSegment = () => {
+  const handleAddSegment = () => { /* ... same as before ... */
     if (!segmentInput.trim()) return;
     const segmentPattern = /^(https:\/\/www\.strava\.com\/segments\/\d+|\d+)$/;
     if (!segmentPattern.test(segmentInput)) {
@@ -148,25 +114,24 @@ export default function CreateRaceForm() {
     if (segmentInput.includes("strava.com/segments/")) {
       segmentId = segmentInput.split("/").pop() || "";
     }
-    if (segments.includes(segmentId)) {
+    if (segmentsWatch.includes(segmentId)) {
       form.setError("segments", {
         type: "manual",
         message: "This segment has already been added",
       });
       return;
     }
-    form.setValue("segments", [...segments, segmentId]);
+    form.setValue("segments", [...segmentsWatch, segmentId]);
     form.clearErrors("segments");
     setSegmentInput("");
-  };
-
-  const handleRemoveSegment = (index: number) => {
-    const updatedSegments = [...segments];
+   };
+  const handleRemoveSegment = (index: number) => { /* ... same as before ... */
+    const updatedSegments = [...segmentsWatch];
     updatedSegments.splice(index, 1);
     form.setValue("segments", updatedSegments);
   };
 
-  const handleSubmit = async (values: FormValues) => {
+  const handleSubmitFunc = async (values: FormValues) => {
     setIsLoading(true);
     setApiError(null);
 
@@ -175,11 +140,7 @@ export default function CreateRaceForm() {
         .filter(id => !isNaN(id) && id > 0);
 
     if (segmentIdsAsNumbers.length !== values.segments.length) {
-         toast({
-            variant: "destructive",
-            title: "Invalid Segment ID",
-            description: "One or more segment IDs are not valid numbers.",
-        });
+         toast({ /* ... */ });
         setIsLoading(false);
         return;
     }
@@ -190,10 +151,12 @@ export default function CreateRaceForm() {
       startDate: values.startDate.toISOString(),
       endDate: values.endDate.toISOString(),
       segmentIds: segmentIdsAsNumbers,
-      privacy: values.privacy,
-      password: values.privacy === "private" ? values.password : undefined,
+      // privacy: "private", // Forced by backend or implicitly private now
+      password: values.password, // Always send password
+      hideLeaderboardUntilFinish: values.hideLeaderboardUntilFinish,
+      useSexCategories: values.useSexCategories, // Include new field
     };
-
+    // ... (fetch logic remains the same)
     console.log("Submitting payload:", payload);
 
     try {
@@ -238,12 +201,13 @@ export default function CreateRaceForm() {
 
   return (
     <div className="w-full max-w-2xl mx-auto bg-background p-6 rounded-xl shadow-sm">
-      <div className="mb-6">
+      {/* ... (back button, title, apiError alert remain the same) ... */}
+       <div className="mb-6">
         <Button variant="outline" onClick={() => navigate("/")}>
           Back to Dashboard
         </Button>
       </div>
-      <h2 className="text-2xl font-bold mb-6 text-center">Create New Race</h2>
+      <h2 className="text-2xl font-bold mb-6 text-center">Create New Private Race</h2>
 
       {apiError && (
         <Alert variant="destructive" className="mb-4">
@@ -254,9 +218,9 @@ export default function CreateRaceForm() {
       )}
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
-          {/* Race Name */}
-          <FormField
+        <form onSubmit={form.handleSubmit(handleSubmitFunc)} className="space-y-6">
+          {/* Race Name, Description, Dates, Segments fields remain the same */}
+            <FormField
             control={form.control}
             name="raceName"
             render={({ field }) => (
@@ -275,31 +239,24 @@ export default function CreateRaceForm() {
               </FormItem>
             )}
           />
-
-          {/* Race Description */}
           <FormField
             control={form.control}
             name="description"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Race Description</FormLabel>
+                <FormLabel>Race Description (Optional)</FormLabel>
                 <FormControl>
                   <textarea
                     className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     placeholder="Describe your race, rules, and any special instructions"
                     {...field}
+                     value={field.value ?? ""}
                   />
                 </FormControl>
-                <FormDescription>
-                  Optional details about your race to help participants
-                  understand what to expect.
-                </FormDescription>
-                <FormMessage />
+                 <FormMessage />
               </FormItem>
             )}
           />
-
-          {/* Start & End Dates */}
            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <FormField
               control={form.control}
@@ -331,7 +288,6 @@ export default function CreateRaceForm() {
                         mode="single"
                         selected={field.value}
                         onSelect={field.onChange}
-                        // REMOVED: disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                         initialFocus
                       />
                     </PopoverContent>
@@ -341,7 +297,6 @@ export default function CreateRaceForm() {
                 </FormItem>
               )}
             />
-
             <FormField
               control={form.control}
               name="endDate"
@@ -374,7 +329,6 @@ export default function CreateRaceForm() {
                         onSelect={field.onChange}
                         disabled={(date) => {
                             const startDate = form.getValues("startDate");
-                            // Disable dates that are on or before the selected start date
                             return startDate ? date <= startDate : false;
                         }}
                         initialFocus
@@ -387,9 +341,7 @@ export default function CreateRaceForm() {
               )}
             />
           </div>
-
-          {/* Segments */}
-          <FormField
+           <FormField
             control={form.control}
             name="segments"
             render={() => (
@@ -407,164 +359,108 @@ export default function CreateRaceForm() {
                   </Button>
                 </div>
                 <FormDescription>
-                  Add one or more Strava segments for this race (enter numeric ID or full URL).
+                  Add one or more Strava segments for this race.
                 </FormDescription>
                 <FormMessage />
-
-                {segments.length > 0 && (
+                 {segmentsWatch.length > 0 && (
                   <div className="mt-4">
-                    <Card>
-                      <CardContent className="p-4">
-                        <h4 className="text-sm font-medium mb-2">
-                          Added Segments:
-                        </h4>
+                    <Card><CardContent className="p-4">
+                        <h4 className="text-sm font-medium mb-2">Added Segments:</h4>
                         <ul className="space-y-2">
-                          {segments.map((segment, index) => (
-                            <li
-                              key={index}
-                              className="flex items-center justify-between bg-muted p-2 rounded-md"
-                            >
+                          {segmentsWatch.map((segment, index) => (
+                            <li key={index} className="flex items-center justify-between bg-muted p-2 rounded-md">
                               <div className="flex items-center overflow-hidden">
-                                <Badge variant="secondary" className="mr-2 flex-shrink-0">
-                                  {index + 1}
-                                </Badge>
+                                <Badge variant="secondary" className="mr-2 flex-shrink-0">{index + 1}</Badge>
                                 <span className="text-sm truncate">{segment}</span>
                               </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleRemoveSegment(index)}
-                                className="flex-shrink-0"
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </li>
-                          ))}
+                              <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveSegment(index)} className="flex-shrink-0"><X className="h-4 w-4" /></Button>
+                            </li>))}
                         </ul>
-                      </CardContent>
-                    </Card>
+                    </CardContent></Card>
                   </div>
                 )}
               </FormItem>
             )}
           />
 
-          {/* Privacy */}
+
+          {/* Password Field (Always visible and required) */}
           <FormField
             control={form.control}
-            name="privacy"
+            name="password"
             render={({ field }) => (
-              <FormItem className="space-y-3">
-                <FormLabel>Race Privacy</FormLabel>
+              <FormItem>
+                <FormLabel>Race Password</FormLabel>
                 <FormControl>
-                  <RadioGroup
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                    className="flex flex-col space-y-1"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="public" id="public" />
-                      <label
-                        htmlFor="public"
-                        className="flex items-center cursor-pointer"
-                      >
-                        <Globe className="h-4 w-4 mr-2" />
-                        <span>Public (Anyone can join)</span>
-                      </label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="private" id="private" />
-                      <label
-                        htmlFor="private"
-                        className="flex items-center cursor-pointer"
-                      >
-                        <Lock className="h-4 w-4 mr-2" />
-                        <span>Private (Password required)</span>
-                      </label>
-                    </div>
-                  </RadioGroup>
+                  <Input
+                    type="password"
+                    placeholder="Set a password (min 4 characters)"
+                    {...field}
+                    value={field.value ?? ""}
+                  />
                 </FormControl>
+                <FormDescription>
+                  All races are private. Participants will need this password to join.
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
 
-          {/* Password (Conditional) */}
-          {privacy === "private" && (
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Race Password</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="password"
-                      placeholder="Set a password (min 4 characters)"
-                      {...field}
-                      value={field.value ?? ""} 
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Participants will need this password to join your race.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          )}
-
-          {/* Category Toggles */}
+          {/* Hide Leaderboard Switch (remains the same) */}
           <FormField
             control={form.control}
-            name="categories.useAgeCategories"
+            name="hideLeaderboardUntilFinish"
             render={({ field }) => (
-              <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                <FormControl>
-                  <Checkbox
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-                <div className="space-y-1 leading-none">
-                  <FormLabel>Enable Age Categories</FormLabel>
+              <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4 shadow-sm">
+                <div className="space-y-0.5">
+                  <FormLabel className="text-base">Hide Leaderboard Until Finish</FormLabel>
                   <FormDescription>
-                    Allow filtering leaderboard by age groups (feature coming soon)
+                    If enabled, participant times on the leaderboard will be hidden from other participants until the race ends.
+                    As the organizer, you will always see all results. Participants will always see their own times.
                   </FormDescription>
                 </div>
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="categories.useSexCategories"
-            render={({ field }) => (
-              <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
                 <FormControl>
-                  <Checkbox
+                  <Switch
                     checked={field.value}
                     onCheckedChange={field.onChange}
+                    aria-label="Hide leaderboard until finish"
                   />
                 </FormControl>
-                <div className="space-y-1 leading-none">
-                  <FormLabel>Enable Sex Categories</FormLabel>
-                  <FormDescription>
-                     Allow filtering leaderboard by sex (male/female) (feature coming soon)
-                  </FormDescription>
-                </div>
               </FormItem>
             )}
           />
 
-          {/* Submit Button */}
+          {/* Enable Sex Categories Switch */}
+          <FormField
+            control={form.control}
+            name="useSexCategories"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4 shadow-sm">
+                 <div className="space-y-0.5">
+                    <FormLabel className="text-base">Enable Sex Categories</FormLabel>
+                    <FormDescription>
+                        If enabled, separate leaderboards for Male and Female participants will be shown.
+                        Participant sex is based on their Strava profile.
+                    </FormDescription>
+                 </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    aria-label="Enable sex categories"
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          {/* Age Categories Removed */}
+
           <div className="flex justify-end pt-4">
             <Button type="submit" disabled={isLoading}>
               {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating...
-                </>
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating...</>
               ) : (
                 "Create Race"
               )}
