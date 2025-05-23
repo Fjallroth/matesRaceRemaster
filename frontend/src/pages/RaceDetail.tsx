@@ -42,7 +42,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Calendar, Trophy, Users, ExternalLink, AlertCircle, Loader2, Settings,
-  Info, ListChecks, Trash2, Edit3, Crown, AlertTriangle, Eye, EyeOff, Zap
+  Info, ListChecks, Trash2, Edit3, Crown, AlertTriangle, Eye, EyeOff, Zap, KeyRound, Share2, Copy
 } from "lucide-react";
 import { format, parseISO, isValid, isAfter } from "date-fns";
 import { Race, RaceParticipant, StravaActivity, ParticipantSegmentResult } from "@/types/raceTypes";
@@ -571,6 +571,89 @@ const RaceDetail: React.FC = () => {
                     <div><p className="text-sm font-medium">Categorization</p><p className="text-muted-foreground">{race.useSexCategories ? "Sex-based leaderboards" : "Overall leaderboard"}</p></div>
                   </div>
               </div>
+              {isOrganizer && (
+  <div className="mt-6 pt-6 border-t">
+    <h3 className="text-lg font-semibold mb-4">Share Race (Organizer Info)</h3>
+    <div className="space-y-4">
+      <div className="flex items-start">
+        <Info className="mr-3 mt-1 text-muted-foreground flex-shrink-0" size={18} />
+        <div>
+          <p className="text-sm font-medium">Race ID</p>
+          <div className="flex items-center gap-2">
+            <p className="text-muted-foreground font-mono bg-muted px-2 py-1 rounded text-sm inline-block">
+              {race.id}
+            </p>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => {
+                navigator.clipboard.writeText(race.id.toString());
+                toast({ title: "Race ID Copied!" });
+              }}
+            >
+              <Copy size={14} />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {race.password && (
+        <div className="flex items-start">
+          <KeyRound className="mr-3 mt-1 text-muted-foreground flex-shrink-0" size={18} />
+          <div>
+            <p className="text-sm font-medium">Race Password</p>
+            <div className="flex items-center gap-2">
+               <p className="text-muted-foreground font-mono bg-muted px-2 py-1 rounded text-sm inline-block">
+                {race.password}
+              </p>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => {
+                  navigator.clipboard.writeText(race.password!);
+                  toast({ title: "Password Copied!" });
+                }}
+              >
+                <Copy size={14} />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-start">
+        <Share2 className="mr-3 mt-1 text-muted-foreground flex-shrink-0" size={18} />
+        <div>
+          <p className="text-sm font-medium">How to Share</p>
+          <p className="text-muted-foreground text-xs">
+            Participants can join by clicking "Join Race" on their dashboard and entering the Race ID and Password.
+          </p>
+          <p className="text-muted-foreground text-xs mt-1">
+            Share this page URL:
+          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <code className="text-xs bg-muted px-2 py-1 rounded break-all">
+              {window.location.href}
+            </code>
+            <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => {
+                    navigator.clipboard.writeText(window.location.href);
+                    toast({ title: "URL Copied!" });
+                }}
+            >
+                <Copy size={14} />
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
             </CardContent>
           </Card>
         </TabsContent>

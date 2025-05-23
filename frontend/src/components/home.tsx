@@ -270,32 +270,6 @@ const Home = () => {
         )
       )}
 
-      <div className="mt-12">
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Stats</CardTitle>
-            <CardDescription>Your cycling competition overview (dummy data)</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex items-center p-4 bg-muted/50 rounded-lg">
-                <Trophy className="h-8 w-8 text-amber-500 mr-4" />
-                <div>
-                  <p className="text-sm text-muted-foreground">Races Won</p>
-                  <p className="text-2xl font-bold">0</p>
-                </div>
-              </div>
-              <div className="flex items-center p-4 bg-muted/50 rounded-lg">
-                <Users className="h-8 w-8 text-blue-500 mr-4" />
-                <div>
-                  <p className="text-sm text-muted-foreground">Active Races Joined</p>
-                  <p className="text-2xl font-bold">0</p> 
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
       <JoinRaceDialog
         isOpen={isJoinRaceDialogOpen}
         onOpenChange={setIsJoinRaceDialogOpen}

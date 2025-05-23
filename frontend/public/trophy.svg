@@ -1,0 +1,14 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .trophy-cup { fill: #FFD700; } /* Gold color for the cup */
+    .trophy-base { fill: #C0C0C0; } /* Silver/Gray for the base */
+    @media (prefers-color-scheme: dark) {
+      .trophy-cup { fill: #FACC15; } /* Slightly adjusted gold for dark mode */
+      .trophy-base { fill: #A0A0A0; } /* Darker gray for dark mode */
+    }
+  </style>
+  <path class="trophy-cup" d="M18 12C18 10.8954 18.8954 10 20 10H44C45.1046 10 46 10.8954 46 12V14H18V12Z"/>
+  <path class="trophy-cup" d="M20 16H44V36C44 41.5228 39.5228 46 34 46H30C24.4772 46 20 41.5228 20 36V16Z"/>
+  <rect class="trophy-base" x="22" y="46" width="20" height="4" rx="1"/>
+  <rect class="trophy-base" x="18" y="50" width="28" height="4" rx="1"/>
+</svg>

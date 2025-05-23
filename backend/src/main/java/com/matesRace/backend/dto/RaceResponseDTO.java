@@ -22,4 +22,5 @@ public class RaceResponseDTO {
     private boolean useSexCategories;
     private List<ParticipantSummaryDTO> participants; // Can be null for list views
     private int participantCount;
+    private String password;
 }

@@ -51,6 +51,7 @@ export interface Race {
   useSexCategories: boolean; 
   participants?: RaceParticipant[];
   participantCount: number;
+  password?: string;
 }
 
 export interface RaceSummary {

@@ -633,13 +633,23 @@ public class RaceApiController {
             logger.warn("Race participants collection was not initialized for race ID: {}. Participant count fetched separately.", race.getId());
             if (includeParticipantsDetails) {
                 logger.warn("Participant details requested but collection not initialized for race ID: {}. Details will be missing.", race.getId());
-                // To include details here, you'd need to fetch participants separately:
-                // List<Participant> actualParticipants = participantRepository.findByRaceId(race.getId());
-                // participantDTOs = actualParticipants.stream()...
-                // This can lead to N+1 if not handled carefully.
             }
         }
+        String racePassword = null;
 
+        // Determine if the current user is the organizer and set the password
+        if (currentUserPrincipal != null && race.getOrganiser() != null) {
+            long currentUserId = -1;
+            try {
+                currentUserId = Long.parseLong(currentUserPrincipal.getName());
+            } catch (NumberFormatException e) {
+                logger.warn("Could not parse current user ID from principal in convertToRaceResponseDTO: {}", currentUserPrincipal.getName());
+            }
+            // Ensure organiser's Strava ID is not null before comparing
+            if (race.getOrganiser().getStravaId() != null && race.getOrganiser().getStravaId().equals(currentUserId)) {
+                racePassword = race.getPassword(); // Assign password if organizer
+            }
+        }
 
         return new RaceResponseDTO(
                 race.getId(),
@@ -653,7 +663,9 @@ public class RaceApiController {
                 race.isHideLeaderboardUntilFinish(),
                 race.isUseSexCategories(),
                 includeParticipantsDetails ? participantDTOs : Collections.emptyList(), // Ensure it's empty list if not included
-                participantCount
+                participantCount,
+                racePassword
         );
+
     }
 }
