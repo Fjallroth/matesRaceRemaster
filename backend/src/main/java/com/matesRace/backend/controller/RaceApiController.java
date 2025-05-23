@@ -553,7 +553,8 @@ public class RaceApiController {
                 user.getDisplayName(),
                 user.getUserStravaFirstName(),
                 user.getUserStravaLastName(),
-                user.getUserStravaPic()
+                user.getUserStravaPic(),
+                user.getUserSex()
         );
     }
 

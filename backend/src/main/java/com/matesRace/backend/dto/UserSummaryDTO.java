@@ -13,4 +13,5 @@ public class UserSummaryDTO {
     private String userStravaFirstName;
     private String userStravaLastName;
     private String userStravaPic;
+    private String userSex;
 }
