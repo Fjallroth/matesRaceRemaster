@@ -648,7 +648,16 @@ const RaceDetail: React.FC = () => {
                   <TableBody>
                     {leaderboardParticipants
                       .filter((p) => p.submittedRide && p.totalTime !== undefined)
-                      .sort((a, b) => (a.totalTime || Infinity) - (b.totalTime || Infinity))
+                      .sort((a, b) => {
+                        const aHasAllSegments = displaySegments.every(segment => a.segmentTimes?.[segment.id.toString()] !== undefined);
+                        const bHasAllSegments = displaySegments.every(segment => b.segmentTimes?.[segment.id.toString()] !== undefined);
+                        
+                        if (!aHasAllSegments && !bHasAllSegments) return 0;
+                        if (!aHasAllSegments) return 1;
+                        if (!bHasAllSegments) return -1;
+                      
+                        return (a.totalTime || Infinity) - (b.totalTime || Infinity);
+                      })
                       .map((participant, index) => (
                         <TableRow key={participant.id}>
                           <TableCell className="font-semibold">{index + 1}</TableCell>
@@ -658,7 +667,11 @@ const RaceDetail: React.FC = () => {
                                 <AvatarFallback>{participant.name?.charAt(0)?.toUpperCase() || 'P'}</AvatarFallback></Avatar>
                               <span className="whitespace-nowrap">{participant.name}</span></div></TableCell>
                            {displaySegments.map(segment => (<TableCell key={`${participant.id}-${segment.id}`} className="hidden md:table-cell">{formatTime(participant.segmentTimes?.[segment.id.toString()])}</TableCell>))}
-                          <TableCell className="font-medium text-right">{formatTime(participant.totalTime)}</TableCell>
+                           <TableCell className="font-medium text-right">
+                              {displaySegments.every(segment => participant.segmentTimes?.[segment.id.toString()] !== undefined)
+                                ? formatTime(participant.totalTime)
+                                : 'DNF'}
+                            </TableCell>
                         </TableRow>
                       ))}
                   </TableBody></Table>
