@@ -480,7 +480,7 @@ const RaceDetail: React.FC = () => {
             </div>
              {isOrganizer && (
               <div className="flex space-x-2 mt-2">
-                <Link to={`/races/edit/${race.id}`}>
+                <Link to={`/edit-race/${race.id}`}>
                   <Button variant="outline" size="sm"><Edit3 className="mr-1.5 h-4 w-4" /> Edit</Button>
                 </Link>
                 <AlertDialog>

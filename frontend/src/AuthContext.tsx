@@ -1,12 +1,16 @@
+// frontend/src/AuthContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 
-// Define a basic user type, expand as needed
 interface User {
-  name: string; // This will be the Strava ID (principal name)
+  name: string; 
   stravaId: string;
   firstName?: string;
   lastName?: string;
   profilePicture?: string;
+  sex?: string; // 'M', 'F', or null
+  city?: string;
+  state?: string;
+  country?: string;
   // Add other fields you expect from /api/user/me
 }
 
@@ -15,7 +19,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   checkAuthStatus: () => Promise<void>;
-  logout: () => Promise<void>; // Add a logout function
+  logout: () => Promise<void>; 
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -26,10 +30,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   const checkAuthStatus = useCallback(async () => {
-    // console.log("Checking auth status...");
     setIsLoading(true);
     try {
-      // Uses Vite proxy if path starts with /api
       const response = await fetch('/api/user/me', {
         headers: {
           'Accept': 'application/json',
@@ -37,11 +39,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       });
       if (response.ok) {
         const userData = await response.json();
-        // console.log("User data received:", userData);
         setUser(userData);
         setIsAuthenticated(true);
       } else {
-        // console.log("Not authenticated, status:", response.status);
         setUser(null);
         setIsAuthenticated(false);
       }
@@ -51,18 +51,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsAuthenticated(false);
     } finally {
       setIsLoading(false);
-      // console.log("Auth status check finished. isLoading:", false, "isAuthenticated:", isAuthenticated);
     }
-  }, []); // Removed isAuthenticated from dependencies to avoid re-check loop on its change
+  }, []); 
 
   const logout = async () => {
-    // Implement backend logout if necessary (e.g., POST to /logout)
-    // For now, just clear frontend state
-    // Example: await fetch('/logout', { method: 'POST' }); // If you have a backend logout
     setUser(null);
     setIsAuthenticated(false);
-    // Optionally redirect to login page
-    // window.location.href = '/login'; // Or use react-router navigate
+    // Optionally, you might want to hit a backend logout endpoint if you have one
+    // await fetch('/logout', { method: 'POST' });
+    // Consider redirecting after logout, e.g., using useNavigate if within a Router context
+    // or window.location.href = '/login';
   };
 
   useEffect(() => {
@@ -71,7 +69,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{ isAuthenticated, user, isLoading, checkAuthStatus, logout }}>
-      {!isLoading ? children : <div>Loading session...</div>} {/* Show children only when not loading initial auth state */}
+      {!isLoading ? children : <div>Loading session...</div>} 
     </AuthContext.Provider>
   );
 };

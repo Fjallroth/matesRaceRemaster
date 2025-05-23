@@ -9,23 +9,30 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Badge } from "@/components/ui/badge";
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, ArrowLeft, AlertTriangle } from 'lucide-react';
-import { Race } from '@/types/raceTypes'; // Corresponds to RaceResponseDTO
-import { parseISO, format } from 'date-fns'; // For date formatting and parsing
+import { Loader2, ArrowLeft, AlertTriangle, Plus, X } from 'lucide-react';
+import { Race } from '@/types/raceTypes';
+import { parseISO, format } from 'date-fns';
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 
-// Define the Zod schema for form validation (similar to RaceCreateDTO structure)
-// Password is optional here, only relevant if isPrivate is true.
-// Segment IDs are handled as a string initially, then converted.
+// Define the Zod schema for form validation
 const raceFormSchema = z.object({
   raceName: z.string().min(3, 'Race name must be at least 3 characters long').max(100),
   raceInfo: z.string().max(500, 'Race info cannot exceed 500 characters').optional(),
   startDate: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Invalid start date" }),
   endDate: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Invalid end date" }),
-  segmentIdsString: z.string().refine(value => {
-    if (!value.trim()) return true; // Allow empty if no segments initially or to clear them
-    return value.split(',').every(id => /^\d+$/.test(id.trim()));
-  }, 'Segment IDs must be numbers, separated by commas. Leave empty if none.'),
+  segments: z.array(z.string()).min(1, {
+    message: "At least one segment is required.",
+  }),
   isPrivate: z.boolean(),
   password: z.string().optional(),
 }).refine(data => {
@@ -35,12 +42,11 @@ const raceFormSchema = z.object({
   return true;
 }, {
   message: 'Private races require a password of at least 4 characters.',
-  path: ['password'], // Show error on password field
+  path: ['password'],
 }).refine(data => new Date(data.endDate) > new Date(data.startDate), {
-    message: "End date must be after start date.",
-    path: ["endDate"],
+  message: "End date must be after start date.",
+  path: ["endDate"],
 });
-
 
 type RaceFormData = z.infer<typeof raceFormSchema>;
 
@@ -52,61 +58,57 @@ const EditRacePage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [segmentInput, setSegmentInput] = useState("");
 
-  const { control, handleSubmit, register, watch, setValue, formState: { errors } } = useForm<RaceFormData>({
+  const form = useForm<RaceFormData>({
     resolver: zodResolver(raceFormSchema),
     defaultValues: {
       raceName: '',
       raceInfo: '',
       startDate: '',
       endDate: '',
-      segmentIdsString: '',
+      segments: [],
       isPrivate: false,
       password: '',
     },
   });
 
+  const { control, handleSubmit, register, watch, setValue, formState: { errors }, setError: setFormError, clearErrors } = form;
+
   const isPrivateWatch = watch('isPrivate');
+  const currentSegments = watch('segments');
 
   const fetchRaceDetails = useCallback(async () => {
     if (!raceId) {
-        setError("Race ID is missing.");
-        setIsLoading(false);
-        return;
+      setError("Race ID is missing.");
+      setIsLoading(false);
+      return;
     }
     setIsLoading(true);
     try {
-      // This endpoint should return RaceResponseDTO
       const response = await fetch(`/api/races/${raceId}`, {
         headers: { 'Accept': 'application/json' },
         credentials: 'include',
       });
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
-            toast({ variant: "destructive", title: "Unauthorized", description: "You are not authorized to edit this race or your session expired." });
-            navigate("/home");
+          toast({ variant: "destructive", title: "Unauthorized", description: "You are not authorized to edit this race or your session expired." });
+          navigate("/home");
         } else if (response.status === 404) {
-            toast({ variant: "destructive", title: "Not Found", description: "Race not found." });
-            navigate("/home");
+          toast({ variant: "destructive", title: "Not Found", description: "Race not found." });
+          navigate("/home");
         }
         throw new Error(`Failed to fetch race details: ${response.statusText}`);
       }
       const data: Race = await response.json();
       setRace(data);
-      // Pre-fill form
       setValue('raceName', data.raceName);
       setValue('raceInfo', data.raceInfo || '');
-      // Dates from backend are ISO strings, format them for datetime-local input
       setValue('startDate', format(parseISO(data.startDate), "yyyy-MM-dd'T'HH:mm"));
       setValue('endDate', format(parseISO(data.endDate), "yyyy-MM-dd'T'HH:mm"));
-      setValue('segmentIdsString', data.segmentIds.join(', '));
+      setValue('segments', data.segmentIds.map(String));
       setValue('isPrivate', data.isPrivate);
-      // Password is not sent in RaceResponseDTO for security.
-      // If you want to allow changing password, you'll need a specific flow.
-      // For now, we'll leave it blank. If it's a private race, the user must re-enter if they want to change it.
-      // Or, if they don't touch it and isPrivate is true, the backend should retain the old password.
-      // The RaceCreateDTO (used for PUT body) has `password`.
-      setValue('password', ''); // Or handle password update more carefully
+      setValue('password', '');
 
     } catch (err: any) {
       setError(err.message);
@@ -120,23 +122,64 @@ const EditRacePage: React.FC = () => {
     fetchRaceDetails();
   }, [fetchRaceDetails]);
 
+  const handleAddSegment = () => {
+    if (!segmentInput.trim()) return;
+    const segmentPattern = /^(https:\/\/www\.strava\.com\/segments\/\d+|\d+)$/;
+    if (!segmentPattern.test(segmentInput)) {
+      setFormError("segments", {
+        type: "manual",
+        message: "Please enter a valid Strava segment URL or ID",
+      });
+      return;
+    }
+    let segmentIdToAdd = segmentInput;
+    if (segmentInput.includes("strava.com/segments/")) {
+      segmentIdToAdd = segmentInput.split("/").pop() || "";
+    }
+    if (currentSegments.includes(segmentIdToAdd)) {
+      setFormError("segments", {
+        type: "manual",
+        message: "This segment has already been added",
+      });
+      return;
+    }
+    setValue("segments", [...currentSegments, segmentIdToAdd]);
+    clearErrors("segments");
+    setSegmentInput("");
+  };
+
+  const handleRemoveSegment = (index: number) => {
+    const updatedSegments = [...currentSegments];
+    updatedSegments.splice(index, 1);
+    setValue("segments", updatedSegments);
+  };
+
   const onSubmit = async (data: RaceFormData) => {
     setIsSubmitting(true);
     setError(null);
 
-    const segmentIds = data.segmentIdsString.split(',')
-      .map(id => parseInt(id.trim(), 10))
-      .filter(id => !isNaN(id));
+    const segmentIdsAsNumbers = data.segments
+      .map(Number)
+      .filter(id => !isNaN(id) && id > 0);
 
-    // This DTO should match backend's RaceCreateDTO or a new RaceUpdateDTO
+    if (segmentIdsAsNumbers.length !== data.segments.length) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Segment ID",
+        description: "One or more segment IDs are not valid numbers.",
+      });
+      setIsSubmitting(false);
+      return;
+    }
+
     const raceUpdatePayload = {
       raceName: data.raceName,
-      raceInfo: data.raceInfo,
+      description: data.raceInfo, // Ensure backend DTO field name is 'description' or map accordingly
       startDate: new Date(data.startDate).toISOString(),
       endDate: new Date(data.endDate).toISOString(),
-      segmentIds: segmentIds,
-      isPrivate: data.isPrivate,
-      password: data.isPrivate ? data.password : undefined, // Only send password if private
+      segmentIds: segmentIdsAsNumbers,
+      privacy: data.isPrivate, // Ensure backend DTO field name is 'privacy'
+      password: data.isPrivate ? data.password : undefined,
     };
 
     try {
@@ -153,15 +196,15 @@ const EditRacePage: React.FC = () => {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: `Failed to update race. Status: ${response.statusText}` }));
         if (response.status === 401 || response.status === 403) {
-            toast({ variant: "destructive", title: "Unauthorized", description: errorData.message || "You are not authorized to perform this action or your session expired." });
+          toast({ variant: "destructive", title: "Unauthorized", description: errorData.message || "You are not authorized to perform this action or your session expired." });
         } else {
-            toast({ variant: "destructive", title: "Update Failed", description: errorData.message || "Could not update the race." });
+          toast({ variant: "destructive", title: "Update Failed", description: errorData.message || "Could not update the race." });
         }
         throw new Error(errorData.message || `Failed to update race`);
       }
 
       toast({ title: 'Race Updated!', description: 'The race details have been successfully updated.' });
-      navigate(`/race/${raceId}`); // Navigate to race detail page or home
+      navigate(`/race/${raceId}`);
     } catch (err: any) {
       setError(err.message);
       console.error('Error updating race:', err);
@@ -179,7 +222,7 @@ const EditRacePage: React.FC = () => {
     );
   }
 
-  if (error && !race) { // Show critical error if race data couldn't be loaded
+  if (error && !race) {
     return (
       <div className="container mx-auto px-4 py-8 text-center">
         <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
@@ -191,18 +234,17 @@ const EditRacePage: React.FC = () => {
       </div>
     );
   }
-  
-  if (!race) { // Should be covered by previous error, but as a fallback
+
+  if (!race) {
     return (
-        <div className="container mx-auto px-4 py-8 text-center">
-            <p className="text-muted-foreground">Race data not available.</p>
-             <Button onClick={() => navigate('/home')} variant="outline">
-                <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
-            </Button>
-        </div>
+      <div className="container mx-auto px-4 py-8 text-center">
+        <p className="text-muted-foreground">Race data not available.</p>
+        <Button onClick={() => navigate('/home')} variant="outline">
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
+        </Button>
+      </div>
     )
   }
-
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-2xl">
@@ -214,89 +256,177 @@ const EditRacePage: React.FC = () => {
           <CardTitle className="text-2xl font-bold">Edit Race: {race?.raceName}</CardTitle>
           <CardDescription>Update the details for your race.</CardDescription>
         </CardHeader>
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="raceName">Race Name</Label>
-              <Input id="raceName" {...register('raceName')} placeholder="My Awesome Race" />
-              {errors.raceName && <p className="text-sm text-destructive">{errors.raceName.message}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="raceInfo">Race Information (Optional)</Label>
-              <Textarea id="raceInfo" {...register('raceInfo')} placeholder="Describe your race, rules, etc." />
-              {errors.raceInfo && <p className="text-sm text-destructive">{errors.raceInfo.message}</p>}
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                    <Label htmlFor="startDate">Start Date & Time</Label>
-                    <Input id="startDate" type="datetime-local" {...register('startDate')} />
-                    {errors.startDate && <p className="text-sm text-destructive">{errors.startDate.message}</p>}
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="endDate">End Date & Time</Label>
-                    <Input id="endDate" type="datetime-local" {...register('endDate')} />
-                    {errors.endDate && <p className="text-sm text-destructive">{errors.endDate.message}</p>}
-                </div>
-            </div>
-
-
-            <div className="space-y-2">
-              <Label htmlFor="segmentIdsString">Strava Segment IDs</Label>
-              <Input
-                id="segmentIdsString"
-                {...register('segmentIdsString')}
-                placeholder="e.g., 12345, 67890 (comma-separated)"
+        <Form {...form}>
+          <form onSubmit={handleSubmit(onSubmit)}>
+            <CardContent className="space-y-6">
+              <FormField
+                control={control}
+                name="raceName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Race Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="My Awesome Race" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-              <p className="text-xs text-muted-foreground">
-                Find segment IDs from Strava segment URLs (e.g., strava.com/segments/YOUR_ID). Separate multiple IDs with a comma.
-              </p>
-              {errors.segmentIdsString && <p className="text-sm text-destructive">{errors.segmentIdsString.message}</p>}
-            </div>
+              <FormField
+                control={control}
+                name="raceInfo"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Race Information (Optional)</FormLabel>
+                    <FormControl>
+                      <Textarea placeholder="Describe your race, rules, etc." {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <div className="flex items-center space-x-3">
-                <Controller
-                    name="isPrivate"
-                    control={control}
-                    render={({ field }) => (
-                        <Switch
-                        id="isPrivate"
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={control}
+                  name="startDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Start Date & Time</FormLabel>
+                      <FormControl>
+                        <Input type="datetime-local" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={control}
+                  name="endDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>End Date & Time</FormLabel>
+                      <FormControl>
+                        <Input type="datetime-local" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={control}
+                name="segments"
+                render={() => (
+                  <FormItem>
+                    <FormLabel>Strava Segments</FormLabel>
+                    <div className="flex items-center space-x-2">
+                      <Input
+                        placeholder="Paste Strava segment URL or ID"
+                        value={segmentInput}
+                        onChange={(e) => setSegmentInput(e.target.value)}
+                        className="flex-1"
+                      />
+                      <Button type="button" onClick={handleAddSegment} size="icon">
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <FormDescription>
+                      Add one or more Strava segments for this race (enter numeric ID or full URL).
+                    </FormDescription>
+                    <FormMessage />
+
+                    {currentSegments.length > 0 && (
+                      <div className="mt-4">
+                        <Card>
+                          <CardContent className="p-4">
+                            <h4 className="text-sm font-medium mb-2">
+                              Added Segments:
+                            </h4>
+                            <ul className="space-y-2">
+                              {currentSegments.map((segment, index) => (
+                                <li
+                                  key={index}
+                                  className="flex items-center justify-between bg-muted p-2 rounded-md"
+                                >
+                                  <div className="flex items-center overflow-hidden">
+                                    <Badge variant="secondary" className="mr-2 flex-shrink-0">
+                                      {index + 1}
+                                    </Badge>
+                                    <span className="text-sm truncate">{segment}</span>
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleRemoveSegment(index)}
+                                    className="flex-shrink-0"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </li>
+                              ))}
+                            </ul>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    )}
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={control}
+                name="isPrivate"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center space-x-3 space-y-0">
+                    <FormControl>
+                      <Switch
                         checked={field.value}
                         onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormLabel className="cursor-pointer">Private Race</FormLabel>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {isPrivateWatch && (
+                <FormField
+                  control={control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password (leave blank to keep current, or enter new)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="password"
+                          placeholder="Min. 4 characters if setting new"
+                          {...field}
+                          value={field.value ?? ""}
                         />
-                    )}
+                      </FormControl>
+                      <FormDescription>
+                        If this is already a private race and you want to keep the existing password, you can leave this blank.
+                        If you want to change the password, enter a new one.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              <Label htmlFor="isPrivate" className="cursor-pointer">Private Race</Label>
-            </div>
-            {errors.isPrivate && <p className="text-sm text-destructive">{errors.isPrivate.message}</p>}
-
-
-            {isPrivateWatch && (
-              <div className="space-y-2">
-                <Label htmlFor="password">Password (leave blank to keep current, or enter new)</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  {...register('password')}
-                  placeholder="Min. 4 characters if setting new"
-                />
-                 <p className="text-xs text-muted-foreground">
-                    If this is already a private race and you want to keep the existing password, you can leave this blank.
-                    If you want to change the password, enter a new one.
-                 </p>
-                {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
-              </div>
-            )}
-            {error && <p className="text-sm text-destructive text-center">{error}</p>}
-          </CardContent>
-          <CardFooter>
-            <Button type="submit" disabled={isSubmitting || isLoading} className="w-full">
-              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Update Race
-            </Button>
-          </CardFooter>
-        </form>
+              )}
+              {error && <p className="text-sm text-destructive text-center">{error}</p>}
+            </CardContent>
+            <CardFooter>
+              <Button type="submit" disabled={isSubmitting || isLoading} className="w-full">
+                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Update Race
+              </Button>
+            </CardFooter>
+          </form>
+        </Form>
       </Card>
     </div>
   );

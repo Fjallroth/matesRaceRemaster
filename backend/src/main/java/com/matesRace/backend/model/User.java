@@ -5,8 +5,6 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-// import jakarta.persistence.Lob; // No longer needed for these fields
-
 import java.time.LocalDateTime;
 
 @Entity
@@ -21,10 +19,18 @@ public class User {
     private String displayName;
 
     @Column(name = "user_sex")
-    private String userSex;
+    private String userSex; // M or F typically from Strava
+
+    @Column(name = "user_city")
+    private String userCity;
+
+    @Column(name = "user_state")
+    private String userState;
+
+    @Column(name = "user_country")
+    private String userCountry;
 
     // For Strava tokens (which are strings), use TEXT for potentially long values.
-    // Removed @Lob, explicitly defined as TEXT.
     @Column(name = "user_strava_access", columnDefinition = "TEXT")
     private String userStravaAccess;
 
@@ -37,8 +43,6 @@ public class User {
     @Column(name = "user_strava_pic", length = 512)
     private String userStravaPic;
 
-    // For Strava tokens (which are strings), use TEXT for potentially long values.
-    // Removed @Lob, explicitly defined as TEXT.
     @Column(name = "user_strava_refresh", columnDefinition = "TEXT")
     private String userStravaRefresh;
 
@@ -49,13 +53,16 @@ public class User {
     public User() {
     }
 
-    public User(Long stravaId, String displayName, String userStravaFirstName, String userStravaLastName, String userStravaPic, String userSex) {
+    public User(Long stravaId, String displayName, String userStravaFirstName, String userStravaLastName, String userStravaPic, String userSex, String userCity, String userState, String userCountry) {
         this.stravaId = stravaId;
         this.displayName = displayName;
         this.userStravaFirstName = userStravaFirstName;
         this.userStravaLastName = userStravaLastName;
         this.userStravaPic = userStravaPic;
         this.userSex = userSex;
+        this.userCity = userCity;
+        this.userState = userState;
+        this.userCountry = userCountry;
     }
 
     // Getters and Setters
@@ -82,6 +89,30 @@ public class User {
 
     public void setUserSex(String userSex) {
         this.userSex = userSex;
+    }
+
+    public String getUserCity() {
+        return userCity;
+    }
+
+    public void setUserCity(String userCity) {
+        this.userCity = userCity;
+    }
+
+    public String getUserState() {
+        return userState;
+    }
+
+    public void setUserState(String userState) {
+        this.userState = userState;
+    }
+
+    public String getUserCountry() {
+        return userCountry;
+    }
+
+    public void setUserCountry(String userCountry) {
+        this.userCountry = userCountry;
     }
 
     public String getUserStravaAccess() {
@@ -138,6 +169,9 @@ public class User {
                 "stravaId=" + stravaId +
                 ", displayName='" + displayName + '\'' +
                 ", userSex='" + userSex + '\'' +
+                ", userCity='" + userCity + '\'' +
+                ", userState='" + userState + '\'' +
+                ", userCountry='" + userCountry + '\'' +
                 ", userStravaAccess='" + (userStravaAccess != null ? "[PROTECTED_ACCESS_TOKEN]" : "null") + '\'' +
                 ", userStravaFirstName='" + userStravaFirstName + '\'' +
                 ", userStravaLastName='" + userStravaLastName + '\'' +
