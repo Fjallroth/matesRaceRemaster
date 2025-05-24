@@ -1,14 +1,6 @@
-// frontend/src/components/home.tsx
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +14,7 @@ import { useToast } from "@/components/ui/use-toast"; // For user feedback
 
 const Home = () => {
   const navigate = useNavigate();
-  const { isAuthenticated, user: currentUser } = useAuth();
+  const { isAuthenticated, user: currentUser, logout, checkAuthStatus } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<"all" | "ongoing" | "upcoming">("all");
   const [showFinishedOnly, setShowFinishedOnly] = useState(false);
@@ -44,7 +36,9 @@ const Home = () => {
         console.warn("Failed to fetch all races for home dashboard, status:", response.status);
         setRaces([]); 
         if (response.status !== 401) {
-            throw new Error(`Failed to fetch races: ${response.statusText}`);
+          toast({ variant: "destructive", title: "Session Expired", description: "Please login again." });
+          await checkAuthStatus(true);
+          return;
         }
       } else {
         const data: Race[] = await response.json();
@@ -56,7 +50,7 @@ const Home = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [logout, navigate, toast, checkAuthStatus]);
 
   useEffect(() => {
     fetchRaces();
@@ -195,7 +189,6 @@ const Home = () => {
           <Button variant="outline" onClick={handleJoinRaceOpenDialog}>
             <Users className="mr-2 h-4 w-4" /> Join Race
           </Button>
-          {/* Removed "My Races" button as functionality is integrated */}
         </div>
       </div>
 
