@@ -1,8 +1,6 @@
-version: "3.8"
-
 services:
   backend:
-    build: ./backend
+    image: matesrace-backend:latest
     container_name: matesrace-backend
     ports:
       - "8080:8080" # Exposes backend's port 8080 to host's port 8080
@@ -13,7 +11,8 @@ services:
       - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
       - STRAVA_CLIENT_ID=${PROD_STRAVA_CLIENT_ID}
       - STRAVA_CLIENT_SECRET=${PROD_STRAVA_CLIENT_SECRET}
-      - FRONTEND_URL=${PROD_FRONTEND_URL}
+      - FRONTEND_URL=http://localhost
+      - SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_STRAVA_REDIRECT_URI=http://localhost:8080/login/oauth2/code/strava
       # Add any other environment variables your backend needs
     depends_on:
       - db
@@ -21,7 +20,7 @@ services:
       - matesrace-network
 
   frontend:
-    build: ./frontend
+    image: matesrace-frontend:latest
     container_name: matesrace-frontend
     ports:
       - "80:80"
