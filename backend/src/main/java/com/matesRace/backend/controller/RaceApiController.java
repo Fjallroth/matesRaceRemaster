@@ -279,7 +279,6 @@ public class RaceApiController {
             logger.warn("Delete attempt for race {} without authentication.", id);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User not authenticated.");
         }
-
         long userStravaId;
         try {
             userStravaId = Long.parseLong(oauth2User.getName());
@@ -294,7 +293,7 @@ public class RaceApiController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Race not found.");
         }
         Race raceToDelete = raceOpt.get();
-        Hibernate.initialize(raceToDelete.getOrganiser());
+        Hibernate.initialize(raceToDelete.getOrganiser()); // Ensure organizer is loaded
 
         if (raceToDelete.getOrganiser() == null || !raceToDelete.getOrganiser().getStravaId().equals(userStravaId)) {
             logger.warn("User {} attempted to delete race {} not owned by them. Actual owner: {}",
@@ -303,16 +302,18 @@ public class RaceApiController {
         }
 
         try {
-            List<Participant> participants = participantRepository.findByRaceId(id);
-            if (participants != null && !participants.isEmpty()) {
-                participantRepository.deleteAllInBatch(participants);
-            }
+            // Rely on CascadeType.ALL and orphanRemoval=true on Race.participants
+            // and subsequently on Participant.segmentResults
             raceRepository.delete(raceToDelete);
+            // entityManager.flush(); // Optional: If you have EntityManager injected and want to force flush for earlier error detection.
+
             logger.info("Race with ID: {} deleted successfully by user {}.", id, userStravaId);
-            return ResponseEntity.noContent().build();
+            return ResponseEntity.noContent().build(); // HTTP 204 No Content
         } catch (Exception e) {
-            logger.error("Error deleting race {}: {}", id, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to delete race due to a server error.");
+            // Log the full exception stack trace for better debugging
+            logger.error("Error deleting race {} by user {}: {}", id, userStravaId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to delete race due to a server error. Details: " + e.getMessage());
         }
     }
 
