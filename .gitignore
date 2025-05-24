@@ -21,3 +21,8 @@ node_modules/
 Thumbs.db
 
 node_modules/
+
+.env
+**/*.env
+*.env
+.env.*
